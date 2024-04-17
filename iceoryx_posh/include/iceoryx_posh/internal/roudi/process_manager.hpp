@@ -17,16 +17,17 @@
 #ifndef IOX_POSH_ROUDI_PROCESS_MANAGER_HPP
 #define IOX_POSH_ROUDI_PROCESS_MANAGER_HPP
 
-#include "iceoryx_hoofs/cxx/list.hpp"
-#include "iceoryx_hoofs/posix_wrapper/posix_access_rights.hpp"
 #include "iceoryx_posh/internal/mepoo/segment_manager.hpp"
 #include "iceoryx_posh/internal/roudi/introspection/process_introspection.hpp"
 #include "iceoryx_posh/internal/roudi/port_manager.hpp"
 #include "iceoryx_posh/internal/roudi/process.hpp"
 #include "iceoryx_posh/internal/runtime/ipc_interface_user.hpp"
 #include "iceoryx_posh/mepoo/chunk_header.hpp"
+#include "iceoryx_posh/roudi/heartbeat_pool.hpp"
 #include "iceoryx_posh/version/compatibility_check_level.hpp"
 #include "iceoryx_posh/version/version_info.hpp"
+#include "iox/list.hpp"
+#include "iox/posix_user.hpp"
 
 #include <cstdint>
 #include <ctime>
@@ -46,7 +47,7 @@ class ProcessManagerInterface
 class ProcessManager : public ProcessManagerInterface
 {
   public:
-    using ProcessList_t = cxx::list<Process, MAX_PROCESS_NUMBER>;
+    using ProcessList_t = iox::list<Process, MAX_PROCESS_NUMBER>;
     using PortConfigInfo = iox::runtime::PortConfigInfo;
 
     enum class TerminationFeedback
@@ -57,6 +58,7 @@ class ProcessManager : public ProcessManagerInterface
 
     ProcessManager(RouDiMemoryInterface& roudiMemoryInterface,
                    PortManager& portManager,
+                   const DomainId domainId,
                    const version::CompatibilityCheckLevel compatibilityCheckLevel) noexcept;
     virtual ~ProcessManager() noexcept override = default;
 
@@ -74,7 +76,7 @@ class ProcessManager : public ProcessManagerInterface
     /// @return false if process was already registered, true otherwise
     bool registerProcess(const RuntimeName_t& name,
                          const uint32_t pid,
-                         const posix::PosixUser user,
+                         const PosixUser user,
                          const bool isMonitored,
                          const int64_t transmissionTimestamp,
                          const uint64_t sessionId,
@@ -106,12 +108,7 @@ class ProcessManager : public ProcessManagerInterface
     /// @brief Tries to gracefully terminate all registered processes
     void requestShutdownOfAllProcesses() noexcept;
 
-    void updateLivelinessOfProcess(const RuntimeName_t& name) noexcept;
-
-    void
-    addInterfaceForProcess(const RuntimeName_t& name, capro::Interfaces interface, const NodeName_t& node) noexcept;
-
-    void addNodeForProcess(const RuntimeName_t& process, const NodeName_t& node) noexcept;
+    void addInterfaceForProcess(const RuntimeName_t& name, capro::Interfaces interface) noexcept;
 
     void addSubscriberForProcess(const RuntimeName_t& name,
                                  const capro::ServiceDescription& service,
@@ -175,7 +172,7 @@ class ProcessManager : public ProcessManagerInterface
     /// @return Returns if the process could be added successfully.
     bool addProcess(const RuntimeName_t& name,
                     const uint32_t pid,
-                    const posix::PosixUser& user,
+                    const PosixUser& user,
                     const bool isMonitored,
                     const int64_t transmissionTimestamp,
                     const uint64_t sessionId,
@@ -226,12 +223,14 @@ class ProcessManager : public ProcessManagerInterface
 
     RouDiMemoryInterface& m_roudiMemoryInterface;
     PortManager& m_portManager;
+    const DomainId m_domainId;
     mepoo::SegmentManager<>* m_segmentManager{nullptr};
     mepoo::MemoryManager* m_introspectionMemoryManager{nullptr};
     segment_id_underlying_t m_mgmtSegmentId{UntypedRelativePointer::NULL_POINTER_ID};
     ProcessList_t m_processList;
     ProcessIntrospectionType* m_processIntrospection{nullptr};
     version::CompatibilityCheckLevel m_compatibilityCheckLevel;
+    HeartbeatPool* m_heartbeatPool;
 };
 
 } // namespace roudi

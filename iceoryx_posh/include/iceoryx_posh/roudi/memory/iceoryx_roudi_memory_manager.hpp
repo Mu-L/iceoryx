@@ -19,10 +19,10 @@
 
 #include "iceoryx_posh/roudi/memory/roudi_memory_interface.hpp"
 
-#include "iceoryx_hoofs/posix_wrapper/file_lock.hpp"
 #include "iceoryx_posh/roudi/memory/default_roudi_memory.hpp"
 #include "iceoryx_posh/roudi/memory/roudi_memory_manager.hpp"
 #include "iceoryx_posh/roudi/port_pool.hpp"
+#include "iox/file_lock.hpp"
 #include "iox/filesystem.hpp"
 #include "iox/logging.hpp"
 
@@ -33,7 +33,7 @@ namespace roudi
 class IceOryxRouDiMemoryManager : public RouDiMemoryInterface
 {
   public:
-    IceOryxRouDiMemoryManager(const RouDiConfig_t& roudiConfig) noexcept;
+    IceOryxRouDiMemoryManager(const IceoryxConfig& config) noexcept;
     /// @brief The Destructor of the IceOryxRouDiMemoryManager also calls destroy on the registered MemoryProvider
     virtual ~IceOryxRouDiMemoryManager() noexcept = default;
 
@@ -56,30 +56,13 @@ class IceOryxRouDiMemoryManager : public RouDiMemoryInterface
     optional<PortPool*> portPool() noexcept override;
     optional<mepoo::MemoryManager*> introspectionMemoryManager() const noexcept override;
     optional<mepoo::MemoryManager*> discoveryMemoryManager() const noexcept override;
+    optional<HeartbeatPool*> heartbeatPool() const noexcept override;
     optional<mepoo::SegmentManager<>*> segmentManager() const noexcept override;
 
   private:
     // in order to prevent a second RouDi to cleanup the memory resources of a running RouDi, this resources are
     // protected by a file lock
-    posix::FileLock fileLock = std::move(
-        posix::FileLockBuilder()
-            .name(ROUDI_LOCK_NAME)
-            .permission(iox::perms::owner_read | iox::perms::owner_write)
-            .create()
-            .or_else([](auto& error) {
-                if (error == posix::FileLockError::LOCKED_BY_OTHER_PROCESS)
-                {
-                    IOX_LOG(FATAL) << "Could not acquire lock, is RouDi still running?";
-                    errorHandler(PoshError::ICEORYX_ROUDI_MEMORY_MANAGER__ROUDI_STILL_RUNNING, iox::ErrorLevel::FATAL);
-                }
-                else
-                {
-                    IOX_LOG(FATAL) << "Error occurred while acquiring file lock named " << ROUDI_LOCK_NAME;
-                    errorHandler(PoshError::ICEORYX_ROUDI_MEMORY_MANAGER__COULD_NOT_ACQUIRE_FILE_LOCK,
-                                 iox::ErrorLevel::FATAL);
-                }
-            })
-            .value());
+    FileLock m_fileLock;
 
     PortPoolMemoryBlock m_portPoolBlock;
     optional<PortPool> m_portPool;

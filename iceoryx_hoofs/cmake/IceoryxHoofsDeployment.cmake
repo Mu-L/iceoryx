@@ -14,11 +14,28 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+include(IceoryxConfigureOptionMacro)
+
 message(STATUS "[i] <<<<<<<<<<<<< Start iceoryx_hoofs configuration: >>>>>>>>>>>>>")
 
-if(NOT DEFINED IOX_MINIMAL_LOG_LEVEL)
-    set(IOX_MINIMAL_LOG_LEVEL "TRACE")
+configure_option(
+    NAME IOX_MINIMAL_LOG_LEVEL
+    DEFAULT_VALUE "TRACE"
+)
+configure_option(
+    NAME IOX_MAX_NAMED_PIPE_MESSAGE_SIZE
+    DEFAULT_VALUE 4096
+)
+configure_option(
+    NAME IOX_MAX_NAMED_PIPE_NUMBER_OF_MESSAGES
+    DEFAULT_VALUE 10
+)
+
+if(IOX_IGNORE_32_BIT_CHECK)
+     set(IOX_IGNORE_32_BIT_CHECK_FLAG true)
+else()
+     set(IOX_IGNORE_32_BIT_CHECK_FLAG false)
 endif()
-message(STATUS "[i] IOX_MINIMAL_LOG_LEVEL: " ${IOX_MINIMAL_LOG_LEVEL})
+message(STATUS "[i] IOX_EXPERIMENTAL_POSH_FLAG: ${IOX_EXPERIMENTAL_POSH_FLAG}")
 
 message(STATUS "[i] <<<<<<<<<<<<<< End iceoryx_hoofs configuration: >>>>>>>>>>>>>>")

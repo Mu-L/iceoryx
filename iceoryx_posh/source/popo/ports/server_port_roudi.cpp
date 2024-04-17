@@ -16,6 +16,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "iceoryx_posh/internal/popo/ports/server_port_roudi.hpp"
+#include "iceoryx_posh/internal/posh_error_reporting.hpp"
 
 namespace iox
 {
@@ -91,9 +92,10 @@ ServerPortRouDi::dispatchCaProMessageAndGetPossibleResponse(const capro::CaproMe
 void ServerPortRouDi::handleCaProProtocolViolation(const capro::CaproMessageType messageType) const noexcept
 {
     // this shouldn't be reached
-    IOX_LOG(FATAL) << "CaPro Protocol Violation! Got '" << messageType << "' with offer state '"
-                   << (getMembers()->m_offered ? "OFFERED" : "NOT OFFERED") << "'!";
-    errorHandler(PoshError::POPO__CAPRO_PROTOCOL_ERROR, ErrorLevel::SEVERE);
+    IOX_LOG(FATAL,
+            "CaPro Protocol Violation! Got '" << messageType << "' with offer state '"
+                                              << (getMembers()->m_offered ? "OFFERED" : "NOT OFFERED") << "'!");
+    IOX_REPORT_FATAL(PoshError::POPO__CAPRO_PROTOCOL_ERROR);
 }
 
 optional<capro::CaproMessage>
@@ -112,8 +114,8 @@ ServerPortRouDi::handleCaProMessageForStateOffered(const capro::CaproMessage& ca
     case capro::CaproMessageType::CONNECT:
         if (caProMessage.m_chunkQueueData == nullptr)
         {
-            IOX_LOG(WARN) << "No client response queue passed to server";
-            errorHandler(PoshError::POPO__SERVER_PORT_NO_CLIENT_RESPONSE_QUEUE_TO_CONNECT, ErrorLevel::MODERATE);
+            IOX_LOG(WARN, "No client response queue passed to server");
+            IOX_REPORT(PoshError::POPO__SERVER_PORT_NO_CLIENT_RESPONSE_QUEUE_TO_CONNECT, iox::er::RUNTIME_ERROR);
         }
         else
         {
@@ -149,9 +151,9 @@ ServerPortRouDi::handleCaProMessageForStateNotOffered(const capro::CaproMessage&
         getMembers()->m_offered.store(true, std::memory_order_relaxed);
         return caProMessage;
     case capro::CaproMessageType::STOP_OFFER:
-        IOX_FALLTHROUGH;
+        [[fallthrough]];
     case capro::CaproMessageType::CONNECT:
-        IOX_FALLTHROUGH;
+        [[fallthrough]];
     case capro::CaproMessageType::DISCONNECT:
         return capro::CaproMessage(capro::CaproMessageType::NACK, this->getCaProServiceDescription());
     default:

@@ -17,12 +17,18 @@
 #ifndef IOX_POSH_RUNTIME_POSH_RUNTIME_IMPL_HPP
 #define IOX_POSH_RUNTIME_POSH_RUNTIME_IMPL_HPP
 
-#include "iceoryx_hoofs/internal/concurrent/periodic_task.hpp"
-#include "iceoryx_hoofs/internal/posix_wrapper/mutex.hpp"
+#include "iceoryx_posh/internal/runtime/heartbeat.hpp"
 #include "iceoryx_posh/internal/runtime/shared_memory_user.hpp"
 #include "iceoryx_posh/runtime/posh_runtime.hpp"
+#include "iox/detail/periodic_task.hpp"
 #include "iox/function.hpp"
 #include "iox/optional.hpp"
+#include "iox/smart_lock.hpp"
+
+namespace iox::posh::experimental
+{
+class Node;
+}
 
 namespace iox
 {
@@ -38,11 +44,12 @@ enum class RuntimeLocation
 class PoshRuntimeImpl : public PoshRuntime
 {
   public:
+    virtual ~PoshRuntimeImpl() noexcept;
+
     PoshRuntimeImpl(const PoshRuntimeImpl&) = delete;
     PoshRuntimeImpl& operator=(const PoshRuntimeImpl&) = delete;
-    PoshRuntimeImpl(PoshRuntimeImpl&&) = delete;
-    PoshRuntimeImpl& operator=(PoshRuntimeImpl&&) = delete;
-    virtual ~PoshRuntimeImpl() noexcept;
+    PoshRuntimeImpl(PoshRuntimeImpl&&) noexcept = delete;
+    PoshRuntimeImpl& operator=(PoshRuntimeImpl&&) noexcept = delete;
 
     /// @copydoc PoshRuntime::getMiddlewarePublisher
     PublisherPortUserType::MemberType_t*
@@ -75,19 +82,21 @@ class PoshRuntimeImpl : public PoshRuntime
     /// @copydoc PoshRuntime::getMiddlewareConditionVariable
     popo::ConditionVariableData* getMiddlewareConditionVariable() noexcept override;
 
-    /// @copydoc PoshRuntime::createNode
-    NodeData* createNode(const NodeProperty& nodeProperty) noexcept override;
-
     /// @copydoc PoshRuntime::sendRequestToRouDi
     bool sendRequestToRouDi(const IpcMessage& msg, IpcMessage& answer) noexcept override;
 
   protected:
     friend class PoshRuntime;
     friend class roudi_env::RuntimeTestInterface;
+    friend class posh::experimental::Node;
 
     // Protected constructor for IPC setup
     PoshRuntimeImpl(optional<const RuntimeName_t*> name,
+                    const DomainId domainId = DEFAULT_DOMAIN_ID,
                     const RuntimeLocation location = RuntimeLocation::SEPARATE_PROCESS_FROM_ROUDI) noexcept;
+
+    PoshRuntimeImpl(optional<const RuntimeName_t*> name,
+                    std::pair<IpcRuntimeInterface, optional<SharedMemoryUser>>&& interfaces) noexcept;
 
   private:
     expected<PublisherPortUserType::MemberType_t*, IpcMessageErrorType>
@@ -105,21 +114,18 @@ class PoshRuntimeImpl : public PoshRuntime
     expected<popo::ConditionVariableData*, IpcMessageErrorType>
     requestConditionVariableFromRoudi(const IpcMessage& sendBuffer) noexcept;
 
-    mutable optional<posix::mutex> m_appIpcRequestMutex;
+    expected<std::tuple<segment_id_underlying_t, UntypedRelativePointer::offset_t>, IpcMessageErrorType>
+    convert_id_and_offset(IpcMessage& msg);
 
-    IpcRuntimeInterface m_ipcChannelInterface;
+  private:
+    concurrent::smart_lock<IpcRuntimeInterface> m_ipcChannelInterface;
     optional<SharedMemoryUser> m_ShmInterface;
 
+    optional<Heartbeat*> m_heartbeat;
     void sendKeepAliveAndHandleShutdownPreparation() noexcept;
-    static_assert(PROCESS_KEEP_ALIVE_INTERVAL > roudi::DISCOVERY_INTERVAL, "Keep alive interval too small");
 
     // the m_keepAliveTask should always be the last member, so that it will be the first member to be destroyed
-    concurrent::PeriodicTask<function<void()>> m_keepAliveTask{
-        concurrent::PeriodicTaskAutoStart,
-        PROCESS_KEEP_ALIVE_INTERVAL,
-        "KeepAlive",
-        *this,
-        &PoshRuntimeImpl::sendKeepAliveAndHandleShutdownPreparation};
+    optional<concurrent::detail::PeriodicTask<function<void()>>> m_keepAliveTask;
 };
 
 } // namespace runtime

@@ -17,12 +17,10 @@
 #ifndef IOX_HOOFS_VOCABULARY_EXPECTED_HPP
 #define IOX_HOOFS_VOCABULARY_EXPECTED_HPP
 
-#include "iox/attributes.hpp"
+#include "iox/detail/deprecation_marker.hpp"
 #include "iox/detail/expected_helper.hpp"
 #include "iox/functional_interface.hpp"
 #include "iox/optional.hpp"
-
-#include <utility>
 
 namespace iox
 {
@@ -125,7 +123,7 @@ detail::err<T> err(Targs&&... args);
 /// @param ValueType type of the value which can be stored in the expected
 /// @param ErrorType type of the error which can be stored in the expected
 template <typename ValueType, typename ErrorType>
-class IOX_NO_DISCARD expected final : public FunctionalInterface<expected<ValueType, ErrorType>, ValueType, ErrorType>
+class [[nodiscard]] expected final : public FunctionalInterface<expected<ValueType, ErrorType>, ValueType, ErrorType>
 {
   public:
     /// @brief default ctor is deleted since you have to clearly state if the
@@ -243,15 +241,15 @@ class IOX_NO_DISCARD expected final : public FunctionalInterface<expected<ValueT
 
     /// @copydoc expected::error()&
     /// @deprecated use 'error' instead of 'get_error'
-    [[deprecated("Use 'error' instead of 'get_error'")]] ErrorType& get_error() & noexcept;
+    IOX_DEPRECATED_SINCE(3, "Please use 'error' instead of 'get_error'") ErrorType& get_error() & noexcept;
 
     /// @copydoc expected::error()const&
     /// @deprecated use 'error' instead of 'get_error'
-    [[deprecated("Use 'error' instead of 'get_error'")]] const ErrorType& get_error() const& noexcept;
+    IOX_DEPRECATED_SINCE(3, "Please use 'error' instead of 'get_error'") const ErrorType& get_error() const& noexcept;
 
     /// @copydoc expected::error()&&
     /// @deprecated use 'error' instead of 'get_error'
-    [[deprecated("Use 'error' instead of 'get_error'")]] ErrorType&& get_error() && noexcept;
+    IOX_DEPRECATED_SINCE(3, "Please use 'error' instead of 'get_error'") ErrorType&& get_error() && noexcept;
 
     /// @brief  returns a lvalue reference to the contained success value, if the expected
     ///         does not contain a success value the error handler is called
@@ -291,7 +289,7 @@ class IOX_NO_DISCARD expected final : public FunctionalInterface<expected<ValueT
     /// @code
     ///     expected<int, float> frodo(ok(45));
     ///     *frodo += 12;
-    ///     IOX_LOG(INFO) << *frodo; // prints 57
+    ///     IOX_LOG(INFO, *frodo); // prints 57
     /// @endcode
     template <typename U = ValueType>
     enable_if_non_void_t<U>& operator*() noexcept;
@@ -304,7 +302,7 @@ class IOX_NO_DISCARD expected final : public FunctionalInterface<expected<ValueT
     /// @code
     ///     expected<int, float> frodo(ok(45));
     ///     *frodo += 12;
-    ///     IOX_LOG(INFO) << *frodo; // prints 57
+    ///     IOX_LOG(INFO, *frodo); // prints 57
     /// @endcode
     template <typename U = ValueType>
     const enable_if_non_void_t<U>& operator*() const noexcept;

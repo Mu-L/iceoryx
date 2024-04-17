@@ -33,9 +33,7 @@ namespace
 {
 using namespace ::testing;
 using namespace iox::popo;
-using namespace iox::cxx;
 using namespace iox::mepoo;
-using namespace iox::posix;
 
 struct DummySample
 {
@@ -43,7 +41,7 @@ struct DummySample
 };
 
 static constexpr uint32_t NUM_CHUNKS_IN_POOL = 9 * iox::MAX_SUBSCRIBER_QUEUE_CAPACITY;
-static constexpr uint32_t SMALL_CHUNK = 128;
+static constexpr uint64_t SMALL_CHUNK = 128;
 static constexpr uint32_t CHUNK_META_INFO_SIZE = 256;
 static constexpr size_t MEMORY_SIZE = NUM_CHUNKS_IN_POOL * (SMALL_CHUNK + CHUNK_META_INFO_SIZE);
 alignas(64) static uint8_t g_memory[MEMORY_SIZE];
@@ -96,7 +94,7 @@ class ChunkBuildingBlocks_IntegrationTest : public Test
         for (size_t i = 0; i < ITERATIONS; i++)
         {
             m_chunkSender
-                .tryAllocate(UniquePortId(),
+                .tryAllocate(UniquePortId(iox::roudi::DEFAULT_UNIQUE_ROUDI_ID),
                              sizeof(DummySample),
                              iox::CHUNK_DEFAULT_USER_PAYLOAD_ALIGNMENT,
                              iox::CHUNK_NO_USER_HEADER_SIZE,
@@ -217,11 +215,11 @@ class ChunkBuildingBlocks_IntegrationTest : public Test
     ChunkDistributor_t m_chunkDistributor{&m_chunkDistributorData};
     ChunkQueueData_t m_chunkQueueData{
         QueueFullPolicy::DISCARD_OLDEST_DATA,
-        iox::cxx::VariantQueueTypes::FiFo_SingleProducerSingleConsumer}; // SoFi intentionally not used
+        iox::popo::VariantQueueTypes::FiFo_SingleProducerSingleConsumer}; // SoFi intentionally not used
     ChunkQueuePopper_t m_popper{&m_chunkQueueData};
 
     // Objects used by subscribing thread
-    ChunkReceiverData_t m_chunkReceiverData{iox::cxx::VariantQueueTypes::FiFo_SingleProducerSingleConsumer,
+    ChunkReceiverData_t m_chunkReceiverData{iox::popo::VariantQueueTypes::FiFo_SingleProducerSingleConsumer,
                                             QueueFullPolicy::DISCARD_OLDEST_DATA}; // SoFi intentionally not used
     ChunkReceiver<ChunkReceiverData_t> m_chunkReceiver{&m_chunkReceiverData};
 };

@@ -35,12 +35,12 @@ struct MePooConfig
     struct Entry
     {
         /// @brief set the size and count of memory chunks
-        Entry(uint32_t f_size, uint32_t f_chunkCount) noexcept
-            : m_size(f_size)
-            , m_chunkCount(f_chunkCount)
+        Entry(uint64_t size, uint32_t chunkCount) noexcept
+            : m_size(size)
+            , m_chunkCount(chunkCount)
         {
         }
-        uint32_t m_size{0};
+        uint64_t m_size{0};
         uint32_t m_chunkCount{0};
     };
 
@@ -51,12 +51,12 @@ struct MePooConfig
     MePooConfig() noexcept = default;
 
     /// @brief Get function for receiving memory pool configuration
-    /// @return cxx::vector of config information size and count of chunks
+    /// @return iox::vector of config information size and count of chunks
     const MePooConfigContainerType* getMemPoolConfig() const noexcept;
 
     /// @brief Function for adding new entry
     /// @param[in] Entry structure of mempool configuration
-    void addMemPool(Entry f_entry) noexcept;
+    void addMemPool(Entry entry) noexcept;
 
     /// @brief Function for creating default memory pools
     MePooConfig& setDefaults() noexcept;

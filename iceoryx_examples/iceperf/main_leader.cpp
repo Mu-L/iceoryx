@@ -17,9 +17,9 @@
 #include "example_common.hpp"
 #include "iceperf_leader.hpp"
 
-#include "iceoryx_dust/cxx/convert.hpp"
 #include "iceoryx_platform/getopt.hpp"
 #include "iceoryx_posh/runtime/posh_runtime.hpp"
+#include "iox/detail/convert.hpp"
 #include "iox/optional.hpp"
 
 #include <cstring>
@@ -116,12 +116,16 @@ int main(int argc, char* argv[])
             }
             break;
         case 'n':
-            if (!iox::cxx::convert::fromString(optarg, settings.numberOfSamples))
+        {
+            auto result = iox::convert::from_string<uint64_t>(optarg);
+            if (!result.has_value())
             {
                 std::cerr << "Could not parse 'number-of-samples' paramater!" << std::endl;
                 return EXIT_FAILURE;
             }
+            settings.numberOfSamples = result.value();
             break;
+        }
         default:
             return EXIT_FAILURE;
         };

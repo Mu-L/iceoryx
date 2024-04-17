@@ -1,6 +1,6 @@
 // Copyright (c) 2019 - 2021 by Robert Bosch GmbH. All rights reserved.
 // Copyright (c) 2021 - 2022 by Apex.AI Inc. All rights reserved.
-// Copyright (c) 2023 by Mathias Kraus <elboberido@m-hias.de>. All rights reserved.
+// Copyright (c) 2023 by ekxide IO GmbH. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -31,7 +31,7 @@ namespace log
 {
 template <typename T>
 template <typename>
-constexpr LogHex<T>::LogHex(const T value) noexcept
+inline constexpr LogHex<T>::LogHex(const T value) noexcept
     : m_value(value)
 {
 }
@@ -44,14 +44,14 @@ inline constexpr LogHex<T> hex(const T value) noexcept
 }
 
 // AXIVION Next Construct AutosarC++19_03-M17.0.3 : See at declaration in header
-inline LogHex<const void* const> hex(const void* const ptr) noexcept
+inline constexpr LogHex<const void* const> hex(const void* const ptr) noexcept
 {
     return LogHex<const void* const>(ptr);
 }
 
 template <typename T>
 template <typename>
-constexpr LogOct<T>::LogOct(const T value) noexcept
+inline constexpr LogOct<T>::LogOct(const T value) noexcept
     : m_value(value)
 {
 }
@@ -61,6 +61,39 @@ template <typename T, typename>
 inline constexpr LogOct<T> oct(const T value) noexcept
 {
     return LogOct<T>(value);
+}
+
+template <typename T>
+template <typename>
+inline constexpr LogBin<T>::LogBin(const T value) noexcept
+    : m_value(value)
+{
+}
+
+// AXIVION Next Construct AutosarC++19_03-M17.0.3 : See at declaration in header
+template <typename T, typename>
+inline constexpr LogBin<T> bin(const T value) noexcept
+{
+    return LogBin<T>(value);
+}
+
+inline constexpr LogRaw::LogRaw(const void* const data, uint64_t size) noexcept
+    : m_data(data)
+    , m_size(size)
+{
+}
+
+// AXIVION Next Construct AutosarC++19_03-M17.0.3 : See at declaration in header
+template <typename T>
+inline constexpr typename std::enable_if<!std::is_pointer<T>::value, LogRaw>::type raw(const T& object) noexcept
+{
+    return LogRaw(&object, sizeof(T));
+}
+
+// AXIVION Next Construct AutosarC++19_03-M17.0.3 : See at declaration in header
+inline constexpr LogRaw raw(const void* const data, const uint64_t size) noexcept
+{
+    return LogRaw(data, size);
 }
 
 /// @todo iox-#1755 use something like 'source_location'
@@ -77,17 +110,6 @@ inline LogStream::LogStream(
 inline LogStream::LogStream(const char* file, const int line, const char* function, LogLevel logLevel) noexcept
     : LogStream(Logger::get(), file, line, function, logLevel)
 {
-}
-
-/// @todo iox-#1755 use something like 'source_location'
-// AXIVION Next Construct AutosarC++19_03-A3.9.1 : See at declaration in header
-// NOLINTNEXTLINE(readability-function-size)
-inline LogStream::LogStream(
-    const char* file, const int line, const char* function, LogLevel logLevel, bool doFlush) noexcept
-    : m_logger(Logger::get())
-    , m_doFlush(doFlush)
-{
-    m_logger.createLogMessageHeader(file, line, function, logLevel);
 }
 
 inline LogStream::~LogStream() noexcept
@@ -236,7 +258,7 @@ inline LogStream& LogStream::operator<<(const long double val) noexcept
 // AXIVION ENABLE STYLE AutosarC++19_03-A3.9.1
 
 template <typename T, typename std::enable_if_t<std::is_integral<T>::value, bool>>
-inline LogStream& LogStream::operator<<(const LogHex<T> val) noexcept
+inline LogStream& LogStream::operator<<(const LogHex<T>&& val) noexcept
 {
     m_logger.logString("0x");
     m_logger.logHex(static_cast<typename std::make_unsigned<T>::type>(val.m_value));
@@ -245,14 +267,14 @@ inline LogStream& LogStream::operator<<(const LogHex<T> val) noexcept
 }
 
 template <typename T, typename std::enable_if_t<std::is_floating_point<T>::value, bool>>
-inline LogStream& LogStream::operator<<(const LogHex<T> val) noexcept
+inline LogStream& LogStream::operator<<(const LogHex<T>&& val) noexcept
 {
     m_logger.logHex(val.m_value);
     m_isFlushed = false;
     return *this;
 }
 
-inline LogStream& LogStream::operator<<(const LogHex<const void* const> val) noexcept
+inline LogStream& LogStream::operator<<(const LogHex<const void* const>&& val) noexcept
 {
     m_logger.logHex(val.m_value);
     m_isFlushed = false;
@@ -260,10 +282,26 @@ inline LogStream& LogStream::operator<<(const LogHex<const void* const> val) noe
 }
 
 template <typename T, typename std::enable_if_t<std::is_integral<T>::value, bool>>
-inline LogStream& LogStream::operator<<(const LogOct<T> val) noexcept
+inline LogStream& LogStream::operator<<(const LogOct<T>&& val) noexcept
 {
     m_logger.logString("0o");
     m_logger.logOct(static_cast<typename std::make_unsigned<T>::type>(val.m_value));
+    m_isFlushed = false;
+    return *this;
+}
+
+template <typename T, typename std::enable_if_t<std::is_integral<T>::value, bool>>
+inline LogStream& LogStream::operator<<(const LogBin<T>&& val) noexcept
+{
+    m_logger.logString("0b");
+    m_logger.logBin(static_cast<typename std::make_unsigned<T>::type>(val.m_value));
+    m_isFlushed = false;
+    return *this;
+}
+
+inline LogStream& LogStream::operator<<(const LogRaw&& val) noexcept
+{
+    m_logger.logRaw(val.m_data, val.m_size);
     m_isFlushed = false;
     return *this;
 }
@@ -279,25 +317,6 @@ inline LogStream& LogStream::operator<<(const LogLevel value) noexcept
     m_logger.logString(asStringLiteral(value));
     return *this;
 }
-
-namespace internal
-{
-// AXIVION Next Construct AutosarC++19_03-A3.9.1 : See at declaration in header
-inline LogStreamOff::LogStreamOff(const char*, const int, const char*, LogLevel, bool) noexcept
-{
-}
-
-inline LogStreamOff& LogStreamOff::self() noexcept
-{
-    return *this;
-}
-
-template <typename T>
-inline LogStreamOff& LogStreamOff::operator<<(T&&) noexcept
-{
-    return *this;
-}
-} // namespace internal
 
 // AXIVION ENABLE STYLE AutosarC++19_03-M5.17.1
 

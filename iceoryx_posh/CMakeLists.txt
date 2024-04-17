@@ -23,7 +23,6 @@ project(iceoryx_posh VERSION ${IOX_VERSION_STRING})
 find_package(Threads REQUIRED)
 find_package(iceoryx_platform REQUIRED)
 find_package(iceoryx_hoofs REQUIRED)
-find_package(iceoryx_dust REQUIRED)
 
 option(DOWNLOAD_TOML_LIB "Download cpptoml via the CMake ExternalProject module" ON)
 option(TOML_CONFIG "TOML support for RouDi with dynamic configuration" ON)
@@ -48,7 +47,6 @@ if(CMAKE_SYSTEM_NAME MATCHES Linux OR CMAKE_SYSTEM_NAME MATCHES Darwin)
 endif()
 
 set(PREFIX iceoryx/v${CMAKE_PROJECT_VERSION})
-include(cmake/iceoryxversions.cmake)
 
 ########## Multiple libraries are exported, the setup and installation is done
 #          manually without the iox_* macros
@@ -82,7 +80,8 @@ iox_add_library(
                                             # and include both iceoryx_posh_core and iceoryx_posh_runtime
     PROJECT_PREFIX          ${PREFIX}
     BUILD_INTERFACE         ${CMAKE_CURRENT_SOURCE_DIR}/include
-                            ${CMAKE_BINARY_DIR}/generated/iceoryx/include
+                            ${CMAKE_CURRENT_SOURCE_DIR}/experimental/include
+                            ${CMAKE_BINARY_DIR}/generated/iceoryx_posh/include
     INSTALL_INTERFACE       include/${PREFIX}
     PRIVATE_INCLUDES        source/capro
                             source/log
@@ -91,13 +90,12 @@ iox_add_library(
                             source/version
                             source/runtime
     PUBLIC_LIBS             iceoryx_hoofs::iceoryx_hoofs
-                            iceoryx_dust::iceoryx_dust
     PRIVATE_LIBS            ${CMAKE_THREAD_LIBS_INIT}
     PRIVATE_LIBS_LINUX      rt
     FILES
         source/capro/capro_message.cpp
         source/capro/service_description.cpp
-        source/error_handling/error_handling.cpp
+        source/iceoryx_posh_types.cpp
         source/mepoo/chunk_header.cpp
         source/mepoo/chunk_management.cpp
         source/mepoo/chunk_settings.cpp
@@ -143,7 +141,9 @@ iox_add_library(
         source/popo/trigger.cpp
         source/popo/trigger_handle.cpp
         source/popo/user_trigger.cpp
+        source/posh_error_reporting.cpp
         source/version/version_info.cpp
+        source/runtime/heartbeat.cpp
         source/runtime/ipc_interface_base.cpp
         source/runtime/ipc_interface_user.cpp
         source/runtime/ipc_interface_creator.cpp
@@ -154,11 +154,10 @@ iox_add_library(
         source/runtime/posh_runtime_impl.cpp           # @todo iox-#590 These files should go into a separate library iceoryx_posh_runtime
         source/runtime/posh_runtime_single_process.cpp #
         source/runtime/service_discovery.cpp           #
-        source/runtime/node.cpp
-        source/runtime/node_data.cpp
-        source/runtime/node_property.cpp
         source/runtime/shared_memory_user.cpp
         source/roudi/service_registry.cpp              # @todo iox-#415 Move the service registry into runtime namespace?
+
+        experimental/source/node.cpp
 )
 
 #
@@ -172,7 +171,7 @@ iox_add_library(
     NAMESPACE           iceoryx_posh
     PROJECT_PREFIX      ${PREFIX}
     BUILD_INTERFACE     ${CMAKE_CURRENT_SOURCE_DIR}/include
-                        ${CMAKE_BINARY_DIR}/generated/iceoryx/include
+                        ${CMAKE_BINARY_DIR}/generated/iceoryx_posh/include
                         ${CMAKE_BINARY_DIR}/dependencies/install/include
     INSTALL_INTERFACE   include/${PREFIX}
     PUBLIC_LIBS         iceoryx_hoofs::iceoryx_hoofs
@@ -240,7 +239,7 @@ if(TOML_CONFIG)
                             iceoryx_posh::iceoryx_posh_roudi
                             cpptoml
         BUILD_INTERFACE     ${CMAKE_CURRENT_SOURCE_DIR}/include
-                            ${CMAKE_BINARY_DIR}/generated/iceoryx/include
+                            ${CMAKE_BINARY_DIR}/generated/iceoryx_posh/include
                             ${CMAKE_BINARY_DIR}/dependencies/install/include
         INSTALL_INTERFACE   include/${PREFIX}
         FILES
@@ -279,10 +278,10 @@ if(TOML_CONFIG)
 endif()
 
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/cmake/iceoryx_posh_deployment.hpp.in"
-  "${CMAKE_BINARY_DIR}/generated/iceoryx/include/iceoryx_posh/iceoryx_posh_deployment.hpp" @ONLY)
+  "${CMAKE_BINARY_DIR}/generated/iceoryx_posh/include/iceoryx_posh/iceoryx_posh_deployment.hpp" @ONLY)
 
 install(
-    FILES ${CMAKE_BINARY_DIR}/generated/iceoryx/include/${PROJECT_NAME}/iceoryx_posh_deployment.hpp
+    FILES ${CMAKE_BINARY_DIR}/generated/iceoryx_posh/include/${PROJECT_NAME}/iceoryx_posh_deployment.hpp
     DESTINATION include/${PREFIX}/${PROJECT_NAME}/
     COMPONENT dev
 )
@@ -294,9 +293,13 @@ install(
     DESTINATION ${DESTINATION_CONFIGDIR}
 )
 
+if(IOX_EXPERIMENTAL_POSH)
+    set(IOX_EXPERIMENTAL_INCLUDE_EXPORT experimental/include/)
+endif()
+
 setup_install_directories_and_export_package(
     TARGETS iceoryx_posh iceoryx_posh_roudi iceoryx_posh_gateway ${ROUDI_EXPORT}
-    INCLUDE_DIRECTORIES include/
+    INCLUDE_DIRECTORIES include/ ${IOX_EXPERIMENTAL_INCLUDE_EXPORT}
 )
 
 

@@ -16,25 +16,46 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "iceoryx_posh/roudi/memory/iceoryx_roudi_memory_manager.hpp"
+#include "iceoryx_posh/internal/posh_error_reporting.hpp"
 
 namespace iox
 {
 namespace roudi
 {
-IceOryxRouDiMemoryManager::IceOryxRouDiMemoryManager(const RouDiConfig_t& roudiConfig) noexcept
-    : m_defaultMemory(roudiConfig)
+IceOryxRouDiMemoryManager::IceOryxRouDiMemoryManager(const IceoryxConfig& config) noexcept
+    : m_fileLock(std::move(
+        FileLockBuilder()
+            .name(concatenate(iceoryxResourcePrefix(config.domainId, ResourceType::ICEORYX_DEFINED), ROUDI_LOCK_NAME))
+            .permission(iox::perms::owner_read | iox::perms::owner_write)
+            .create()
+            .or_else([](auto& error) {
+                if (error == FileLockError::LOCKED_BY_OTHER_PROCESS)
+                {
+                    IOX_LOG(FATAL, "Could not acquire lock, is RouDi still running?");
+                    IOX_REPORT_FATAL(PoshError::ICEORYX_ROUDI_MEMORY_MANAGER__ROUDI_STILL_RUNNING);
+                }
+                else
+                {
+                    IOX_LOG(FATAL, "Error occurred while acquiring file lock named " << ROUDI_LOCK_NAME);
+                    IOX_REPORT_FATAL(PoshError::ICEORYX_ROUDI_MEMORY_MANAGER__COULD_NOT_ACQUIRE_FILE_LOCK);
+                }
+            })
+            .value()))
+    , m_portPoolBlock(config.uniqueRouDiId)
+    , m_defaultMemory(config)
 {
     m_defaultMemory.m_managementShm.addMemoryBlock(&m_portPoolBlock).or_else([](auto) {
-        errorHandler(PoshError::ICEORYX_ROUDI_MEMORY_MANAGER__FAILED_TO_ADD_PORTPOOL_MEMORY_BLOCK, ErrorLevel::FATAL);
+        IOX_REPORT_FATAL(PoshError::ICEORYX_ROUDI_MEMORY_MANAGER__FAILED_TO_ADD_PORTPOOL_MEMORY_BLOCK);
     });
     m_memoryManager.addMemoryProvider(&m_defaultMemory.m_managementShm).or_else([](auto) {
-        errorHandler(PoshError::ICEORYX_ROUDI_MEMORY_MANAGER__FAILED_TO_ADD_MANAGEMENT_MEMORY_BLOCK, ErrorLevel::FATAL);
+        IOX_REPORT_FATAL(PoshError::ICEORYX_ROUDI_MEMORY_MANAGER__FAILED_TO_ADD_MANAGEMENT_MEMORY_BLOCK);
     });
 }
 
 expected<void, RouDiMemoryManagerError> IceOryxRouDiMemoryManager::createAndAnnounceMemory() noexcept
 {
     auto result = m_memoryManager.createAndAnnounceMemory();
+    m_defaultMemory.heartbeatPoolBlock.emplace();
     auto portPool = m_portPoolBlock.portPool();
     if (result.has_value() && portPool.has_value())
     {
@@ -66,6 +87,11 @@ optional<mepoo::MemoryManager*> IceOryxRouDiMemoryManager::introspectionMemoryMa
 optional<mepoo::MemoryManager*> IceOryxRouDiMemoryManager::discoveryMemoryManager() const noexcept
 {
     return m_defaultMemory.m_discoveryMemPoolBlock.memoryManager();
+}
+
+optional<HeartbeatPool*> IceOryxRouDiMemoryManager::heartbeatPool() const noexcept
+{
+    return m_defaultMemory.heartbeatPoolBlock.value();
 }
 
 optional<mepoo::SegmentManager<>*> IceOryxRouDiMemoryManager::segmentManager() const noexcept

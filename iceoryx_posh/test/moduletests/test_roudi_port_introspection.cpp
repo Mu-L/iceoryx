@@ -15,10 +15,10 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "iceoryx_dust/cxx/std_string_support.hpp"
 #include "iceoryx_posh/internal/roudi/introspection/port_introspection.hpp"
 #include "iceoryx_posh/mepoo/chunk_header.hpp"
 #include "iceoryx_posh/testing/mocks/chunk_mock.hpp"
+#include "iox/std_string_support.hpp"
 #include "mocks/publisher_mock.hpp"
 #include "mocks/subscriber_mock.hpp"
 
@@ -63,6 +63,7 @@ class PortIntrospection_test : public Test
 
     void SetUp() override
     {
+        DefaultValue<iox::popo::UniquePortId>::Set(iox::roudi::DEFAULT_UNIQUE_ROUDI_ID);
         ASSERT_THAT(m_introspectionAccess.registerPublisherPort(std::move(m_mockPublisherPortUserIntrospection),
                                                                 std::move(m_mockPublisherPortUserIntrospection),
                                                                 std::move(m_mockPublisherPortUserIntrospection)),
@@ -71,6 +72,7 @@ class PortIntrospection_test : public Test
 
     void TearDown() override
     {
+        DefaultValue<iox::popo::UniquePortId>::Clear();
     }
 
     bool comparePortData(const iox::roudi::SubscriberPortData& a, const iox::roudi::SubscriberPortData& b)
@@ -91,10 +93,6 @@ class PortIntrospection_test : public Test
             return false;
         }
         if (a.m_caproEventMethodID != b.m_caproEventMethodID)
-        {
-            return false;
-        }
-        if (a.m_node != b.m_node)
         {
             return false;
         }
@@ -120,10 +118,6 @@ class PortIntrospection_test : public Test
             return false;
         }
         if (a.m_caproEventMethodID != b.m_caproEventMethodID)
-        {
-            return false;
-        }
-        if (a.m_node != b.m_node)
         {
             return false;
         }
@@ -188,8 +182,6 @@ TEST_F(PortIntrospection_test, addAndRemovePublisher)
 
     const iox::RuntimeName_t runtimeName1{"name1"};
     const iox::RuntimeName_t runtimeName2{"name2"};
-    const iox::NodeName_t nodeName1{"4"};
-    const iox::NodeName_t nodeName2{"jkl"};
 
     // prepare expected outputs
     PortData expected1;
@@ -197,14 +189,12 @@ TEST_F(PortIntrospection_test, addAndRemovePublisher)
     expected1.m_caproInstanceID = "1";
     expected1.m_caproServiceID = "2";
     expected1.m_caproEventMethodID = "3";
-    expected1.m_node = nodeName1;
 
     PortData expected2;
     expected2.m_name = runtimeName2;
     expected2.m_caproInstanceID = "abc";
     expected2.m_caproServiceID = "def";
     expected2.m_caproEventMethodID = "ghi";
-    expected2.m_node = nodeName2;
 
     // prepare inputs
     iox::capro::ServiceDescription service1(
@@ -214,11 +204,11 @@ TEST_F(PortIntrospection_test, addAndRemovePublisher)
 
     iox::mepoo::MemoryManager memoryManager;
     iox::popo::PublisherOptions publisherOptions1;
-    publisherOptions1.nodeName = nodeName1;
     iox::popo::PublisherOptions publisherOptions2;
-    publisherOptions2.nodeName = nodeName2;
-    iox::popo::PublisherPortData portData1(service1, runtimeName1, &memoryManager, publisherOptions1);
-    iox::popo::PublisherPortData portData2(service2, runtimeName2, &memoryManager, publisherOptions2);
+    iox::popo::PublisherPortData portData1(
+        service1, runtimeName1, iox::roudi::DEFAULT_UNIQUE_ROUDI_ID, &memoryManager, publisherOptions1);
+    iox::popo::PublisherPortData portData2(
+        service2, runtimeName2, iox::roudi::DEFAULT_UNIQUE_ROUDI_ID, &memoryManager, publisherOptions2);
     MockPublisherPortUser port1(&portData1);
     MockPublisherPortUser port2(&portData2);
     // test adding of ports
@@ -328,14 +318,12 @@ TEST_F(PortIntrospection_test, addAndRemoveSubscriber)
     expected1.m_caproInstanceID = "1";
     expected1.m_caproServiceID = "2";
     expected1.m_caproEventMethodID = "3";
-    expected1.m_node = nodeName1;
 
     PortData expected2;
     expected2.m_name = runtimeName2;
     expected2.m_caproInstanceID = "4";
     expected2.m_caproServiceID = "5";
     expected2.m_caproEventMethodID = "6";
-    expected2.m_node = nodeName2;
 
     // prepare inputs
     iox::capro::ServiceDescription service1(
@@ -350,11 +338,17 @@ TEST_F(PortIntrospection_test, addAndRemoveSubscriber)
 
     // test adding of ports
     // remark: duplicate subscriber insertions are not possible
-    iox::popo::SubscriberPortData recData1{
-        service1, runtimeName1, iox::cxx::VariantQueueTypes::FiFo_MultiProducerSingleConsumer, subscriberOptions1};
+    iox::popo::SubscriberPortData recData1{service1,
+                                           runtimeName1,
+                                           iox::roudi::DEFAULT_UNIQUE_ROUDI_ID,
+                                           iox::popo::VariantQueueTypes::FiFo_MultiProducerSingleConsumer,
+                                           subscriberOptions1};
     MockSubscriberPortUser port1(&recData1);
-    iox::popo::SubscriberPortData recData2{
-        service2, runtimeName2, iox::cxx::VariantQueueTypes::FiFo_MultiProducerSingleConsumer, subscriberOptions2};
+    iox::popo::SubscriberPortData recData2{service2,
+                                           runtimeName2,
+                                           iox::roudi::DEFAULT_UNIQUE_ROUDI_ID,
+                                           iox::popo::VariantQueueTypes::FiFo_MultiProducerSingleConsumer,
+                                           subscriberOptions2};
     MockSubscriberPortUser port2(&recData2);
     EXPECT_THAT(m_introspectionAccess.addSubscriber(recData1), Eq(true));
     EXPECT_THAT(m_introspectionAccess.addSubscriber(recData1), Eq(false));

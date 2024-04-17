@@ -19,6 +19,7 @@
 #define IOX_POSH_POPO_BASE_CLIENT_INL
 
 #include "iceoryx_posh/internal/popo/base_client.hpp"
+#include "iceoryx_posh/internal/posh_error_reporting.hpp"
 
 namespace iox
 {
@@ -106,15 +107,16 @@ inline void BaseClient<PortT, TriggerHandleT>::enableState(TriggerHandleT&& trig
     case ClientState::HAS_RESPONSE:
         if (m_trigger)
         {
-            IOX_LOG(WARN)
-                << "The client is already attached with either the ClientState::HAS_RESPONSE or "
-                   "ClientEvent::RESPONSE_RECEIVED to a WaitSet/Listener. Detaching it from previous one and "
-                   "attaching it to the new one with ClientState::HAS_RESPONSE. Best practice is to call detach first.";
+            IOX_LOG(
+                WARN,
+                "The client is already attached with either the ClientState::HAS_RESPONSE or "
+                "ClientEvent::RESPONSE_RECEIVED to a WaitSet/Listener. Detaching it from previous one and "
+                "attaching it to the new one with ClientState::HAS_RESPONSE. Best practice is to call detach first.");
 
-            errorHandler(
+            IOX_REPORT(
                 PoshError::
                     POPO__BASE_CLIENT_OVERRIDING_WITH_STATE_SINCE_HAS_RESPONSE_OR_RESPONSE_RECEIVED_ALREADY_ATTACHED,
-                ErrorLevel::MODERATE);
+                iox::er::RUNTIME_ERROR);
         }
         m_trigger = std::move(triggerHandle);
         m_port.setConditionVariable(*m_trigger.getConditionVariableData(), m_trigger.getUniqueId());
@@ -155,15 +157,15 @@ inline void BaseClient<PortT, TriggerHandleT>::enableEvent(TriggerHandleT&& trig
     case ClientEvent::RESPONSE_RECEIVED:
         if (m_trigger)
         {
-            IOX_LOG(WARN)
-                << "The client is already attached with either the ClientState::HAS_RESPONSE or "
-                   "ClientEvent::RESPONSE_RECEIVED to a WaitSet/Listener. Detaching it from previous one and "
-                   "attaching it to the new one with ClientEvent::RESPONSE_RECEIVED. Best practice is to call detach "
-                   "first.";
-            errorHandler(
+            IOX_LOG(WARN,
+                    "The client is already attached with either the ClientState::HAS_RESPONSE or "
+                    "ClientEvent::RESPONSE_RECEIVED to a WaitSet/Listener. Detaching it from previous one and "
+                    "attaching it to the new one with ClientEvent::RESPONSE_RECEIVED. Best practice is to call detach "
+                    "first.");
+            IOX_REPORT(
                 PoshError::
                     POPO__BASE_CLIENT_OVERRIDING_WITH_EVENT_SINCE_HAS_RESPONSE_OR_RESPONSE_RECEIVED_ALREADY_ATTACHED,
-                ErrorLevel::MODERATE);
+                iox::er::RUNTIME_ERROR);
         }
         m_trigger = std::move(triggerHandle);
         m_port.setConditionVariable(*m_trigger.getConditionVariableData(), m_trigger.getUniqueId());

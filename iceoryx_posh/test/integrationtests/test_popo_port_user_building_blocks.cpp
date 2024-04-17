@@ -15,8 +15,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "iceoryx_hoofs/internal/concurrent/smart_lock.hpp"
 #include "iceoryx_hoofs/testing/timing_test.hpp"
+#include "iceoryx_hoofs/testing/watch_dog.hpp"
 #include "iceoryx_posh/iceoryx_posh_types.hpp"
 #include "iceoryx_posh/internal/popo/ports/publisher_port_roudi.hpp"
 #include "iceoryx_posh/internal/popo/ports/publisher_port_user.hpp"
@@ -25,6 +25,7 @@
 #include "iceoryx_posh/internal/popo/ports/subscriber_port_user.hpp"
 #include "iceoryx_posh/mepoo/mepoo_config.hpp"
 #include "iox/scope_guard.hpp"
+#include "iox/smart_lock.hpp"
 #include "test.hpp"
 
 #include <chrono>
@@ -36,27 +37,28 @@ namespace
 using namespace ::testing;
 using namespace iox::popo;
 using namespace iox::capro;
-using namespace iox::cxx;
 using namespace iox;
 using namespace iox::mepoo;
-using namespace iox::posix;
 
 struct DummySample
 {
     uint64_t m_dummy{42U};
 };
 
-static const ServiceDescription TEST_SERVICE_DESCRIPTION("x", "y", "z");
-static const iox::RuntimeName_t TEST_SUBSCRIBER_RUNTIME_NAME("mySubscriberApp");
-static const iox::RuntimeName_t TEST_PUBLISHER_RUNTIME_NAME("myPublisherApp");
 
-static constexpr uint32_t NUMBER_OF_PUBLISHERS = 17U;
-static constexpr uint32_t ITERATIONS = 1000U;
+constexpr iox::units::Duration DEADLOCK_TIMEOUT{15_s};
 
-static constexpr uint32_t NUM_CHUNKS_IN_POOL = NUMBER_OF_PUBLISHERS * ITERATIONS;
-static constexpr uint32_t SMALL_CHUNK = 128U;
-static constexpr uint32_t CHUNK_META_INFO_SIZE = 256U;
-static constexpr size_t MEMORY_SIZE = NUM_CHUNKS_IN_POOL * (SMALL_CHUNK + CHUNK_META_INFO_SIZE);
+const ServiceDescription TEST_SERVICE_DESCRIPTION("x", "y", "z");
+const iox::RuntimeName_t TEST_SUBSCRIBER_RUNTIME_NAME("mySubscriberApp");
+const iox::RuntimeName_t TEST_PUBLISHER_RUNTIME_NAME("myPublisherApp");
+
+constexpr uint32_t NUMBER_OF_PUBLISHERS = 17U;
+constexpr uint32_t ITERATIONS = 1000U;
+
+constexpr uint32_t NUM_CHUNKS_IN_POOL = NUMBER_OF_PUBLISHERS * ITERATIONS;
+constexpr uint64_t SMALL_CHUNK = 128U;
+constexpr uint32_t CHUNK_META_INFO_SIZE = 256U;
+constexpr size_t MEMORY_SIZE = NUM_CHUNKS_IN_POOL * (SMALL_CHUNK + CHUNK_META_INFO_SIZE);
 alignas(64) static uint8_t g_memory[MEMORY_SIZE];
 
 class PortUser_IntegrationTest : public Test
@@ -81,11 +83,16 @@ class PortUser_IntegrationTest : public Test
 
             iox::RuntimeName_t runtimeName(TruncateToCapacity, publisherRuntimeName.str().c_str());
 
-            m_publisherPortDataVector.emplace_back(
-                TEST_SERVICE_DESCRIPTION, runtimeName, &m_memoryManager, PublisherOptions());
+            m_publisherPortDataVector.emplace_back(TEST_SERVICE_DESCRIPTION,
+                                                   runtimeName,
+                                                   roudi::DEFAULT_UNIQUE_ROUDI_ID,
+                                                   &m_memoryManager,
+                                                   PublisherOptions());
             m_publisherPortUserVector.emplace_back(&m_publisherPortDataVector.back());
             m_publisherPortRouDiVector.emplace_back(&m_publisherPortDataVector.back());
         }
+
+        m_deadlockWatchdog.watchAndActOnFailure([] { std::terminate(); });
     }
 
     void TearDown()
@@ -103,9 +110,11 @@ class PortUser_IntegrationTest : public Test
         static_cast<void>(m_subscriberPortRouDiMultiProducer.tryGetCaProMessage());
     }
 
-    uint64_t m_receiveCounter{0U};
+    Watchdog m_deadlockWatchdog{DEADLOCK_TIMEOUT};
+
+    std::atomic<uint64_t> m_receiveCounter{0U};
     std::atomic<uint64_t> m_sendCounter{0U};
-    std::atomic<uint64_t> m_publisherRunFinished{0U};
+    std::atomic<bool> m_publisherRunFinished{false};
 
     // Memory objects
     iox::BumpAllocator m_memoryAllocator{g_memory, MEMORY_SIZE};
@@ -119,6 +128,7 @@ class PortUser_IntegrationTest : public Test
     // subscriber port for single producer
     SubscriberPortData m_subscriberPortDataSingleProducer{TEST_SERVICE_DESCRIPTION,
                                                           TEST_SUBSCRIBER_RUNTIME_NAME,
+                                                          roudi::DEFAULT_UNIQUE_ROUDI_ID,
                                                           VariantQueueTypes::SoFi_SingleProducerSingleConsumer,
                                                           SubscriberOptions()};
     SubscriberPortUser m_subscriberPortUserSingleProducer{&m_subscriberPortDataSingleProducer};
@@ -127,6 +137,7 @@ class PortUser_IntegrationTest : public Test
     // subscriber port for multi producer
     SubscriberPortData m_subscriberPortDataMultiProducer{TEST_SERVICE_DESCRIPTION,
                                                          TEST_SUBSCRIBER_RUNTIME_NAME,
+                                                         roudi::DEFAULT_UNIQUE_ROUDI_ID,
                                                          VariantQueueTypes::SoFi_MultiProducerSingleConsumer,
                                                          SubscriberOptions()};
     SubscriberPortUser m_subscriberPortUserMultiProducer{&m_subscriberPortDataMultiProducer};
@@ -152,7 +163,7 @@ class PortUser_IntegrationTest : public Test
             // Add delay to allow other thread accessing the shared resource
             std::this_thread::sleep_for(std::chrono::microseconds(100));
             {
-                auto guardedVector = concurrentCaproMessageVector.getScopeGuard();
+                auto guardedVector = concurrentCaproMessageVector.get_scope_guard();
                 if (guardedVector->size() != 0U)
                 {
                     caproMessage = guardedVector->back();
@@ -170,9 +181,7 @@ class PortUser_IntegrationTest : public Test
     }
 
     template <typename SubscriberPortType>
-    void subscriberThread(uint32_t numberOfPublishers,
-                          SubscriberPortType& subscriberPortRouDi,
-                          SubscriberPortUser& subscriberPortUser)
+    void subscriberThread(SubscriberPortType& subscriberPortRouDi, SubscriberPortUser& subscriberPortUser)
     {
         bool finished{false};
 
@@ -200,22 +209,19 @@ class PortUser_IntegrationTest : public Test
         static_cast<void>(subscriberPortRouDi.dispatchCaProMessageAndGetPossibleResponse(caproMessage));
 
         // Subscription done and ready to receive samples
-        while (!finished)
+        while (!finished || subscriberPortUser.hasNewChunks())
         {
             // Try to receive chunk
             subscriberPortUser.tryGetChunk()
                 .and_then([&](auto& chunkHeader) {
-                    m_receiveCounter++;
+                    m_receiveCounter.fetch_add(1, std::memory_order_relaxed);
                     subscriberPortUser.releaseChunk(chunkHeader);
                 })
                 .or_else([&](auto& result) {
                     if (result == ChunkReceiveResult::NO_CHUNK_AVAILABLE)
                     {
                         // Nothing received -> check if publisher(s) still running
-                        if (m_publisherRunFinished.load(std::memory_order_relaxed) == numberOfPublishers)
-                        {
-                            finished = true;
-                        }
+                        finished = m_publisherRunFinished.load(std::memory_order_relaxed);
                     }
                     else
                     {
@@ -290,8 +296,17 @@ class PortUser_IntegrationTest : public Test
         }
 
         // Subscriber is ready to receive -> start sending samples
-        for (size_t i = 0U; i < ITERATIONS; i++)
+        size_t i = 0U;
+        while (i < ITERATIONS)
         {
+            // slow down to ensure there is no overflow
+            auto receiveCounter = m_receiveCounter.load(std::memory_order_relaxed);
+            auto sendCounter = m_sendCounter.load(std::memory_order_seq_cst);
+            if (sendCounter - receiveCounter > 100)
+            {
+                std::this_thread::yield();
+                continue;
+            }
             publisherPortUser
                 .tryAllocateChunk(sizeof(DummySample),
                                   alignof(DummySample),
@@ -302,74 +317,64 @@ class PortUser_IntegrationTest : public Test
                     new (sample) DummySample();
                     static_cast<DummySample*>(sample)->m_dummy = i;
                     publisherPortUser.sendChunk(chunkHeader);
-                    m_sendCounter++;
+                    m_sendCounter.fetch_add(1, std::memory_order_relaxed);
                 })
                 .or_else([](auto error) {
                     // Errors shall never occur
                     GTEST_FAIL() << "Error in tryAllocateChunk(): " << static_cast<uint32_t>(error);
                 });
 
-            /// Add some jitter to make thread breathe
-            std::this_thread::sleep_for(std::chrono::milliseconds(rand() % 4));
-        }
+            ++i;
 
-        // Signal the subscriber thread we're done
-        m_publisherRunFinished++;
+            /// Add some jitter to make thread breathe
+            /// On Windows even when asked for short sleeps the OS suspends the execution for multiple milliseconds;
+            /// therefore lets sleep only every second iteration
+            if (i % 2 == 0)
+            {
+                std::this_thread::sleep_for(std::chrono::microseconds(100 + rand() % 50));
+            }
+        }
     }
 };
 
-TIMING_TEST_F(PortUser_IntegrationTest, SingleProducer, Repeat(5), [&] {
+TEST_F(PortUser_IntegrationTest, SingleProducer)
+{
     ::testing::Test::RecordProperty("TEST_ID", "bb62ac02-2b7d-4d1c-8699-9f5ba4d9bd5a");
-    constexpr uint32_t NUMBER_OF_PUBLISHERS_SINGLE_PRODUCER = 1U;
-    constexpr uint32_t INDEX_OF_PUBLISHER_SINGLE_PRODUCER = 0U;
 
-    std::thread subscribingThread(std::bind(&PortUser_IntegrationTest::subscriberThread<SubscriberPortSingleProducer>,
-                                            this,
-                                            NUMBER_OF_PUBLISHERS_SINGLE_PRODUCER,
-                                            std::ref(PortUser_IntegrationTest::m_subscriberPortRouDiSingleProducer),
-                                            std::ref(PortUser_IntegrationTest::m_subscriberPortUserSingleProducer)));
-    std::thread publishingThread(std::bind(&PortUser_IntegrationTest::publisherThread,
-                                           this,
-                                           INDEX_OF_PUBLISHER_SINGLE_PRODUCER,
-                                           std::ref(PortUser_IntegrationTest::m_publisherPortRouDiVector.front()),
-                                           std::ref(PortUser_IntegrationTest::m_publisherPortUserVector.front())));
-
-    if (subscribingThread.joinable())
-    {
-        subscribingThread.join();
-    }
+    std::thread subscribingThread(
+        [this] { subscriberThread(m_subscriberPortRouDiSingleProducer, m_subscriberPortUserSingleProducer); });
+    std::thread publishingThread([this] {
+        constexpr uint32_t INDEX_OF_PUBLISHER_SINGLE_PRODUCER = 0U;
+        publisherThread(
+            INDEX_OF_PUBLISHER_SINGLE_PRODUCER, m_publisherPortRouDiVector.front(), m_publisherPortUserVector.front());
+    });
 
     if (publishingThread.joinable())
     {
         publishingThread.join();
     }
-
-    TIMING_TEST_EXPECT_TRUE(m_sendCounter.load(std::memory_order_relaxed) == m_receiveCounter);
-    TIMING_TEST_EXPECT_FALSE(PortUser_IntegrationTest::m_subscriberPortUserMultiProducer.hasLostChunksSinceLastCall());
-})
-
-TIMING_TEST_F(PortUser_IntegrationTest, MultiProducer, Repeat(5), [&] {
-    ::testing::Test::RecordProperty("TEST_ID", "d27279d3-26c0-4489-9208-bd361120525a");
-    std::thread subscribingThread(std::bind(&PortUser_IntegrationTest::subscriberThread<SubscriberPortMultiProducer>,
-                                            this,
-                                            NUMBER_OF_PUBLISHERS,
-                                            std::ref(PortUser_IntegrationTest::m_subscriberPortRouDiMultiProducer),
-                                            std::ref(PortUser_IntegrationTest::m_subscriberPortUserMultiProducer)));
-
-
-    for (uint32_t i = 0U; i < NUMBER_OF_PUBLISHERS; i++)
-    {
-        m_publisherThreadVector.emplace_back(
-            std::bind(&PortUser_IntegrationTest::publisherThread,
-                      this,
-                      i,
-                      std::ref(PortUser_IntegrationTest::m_publisherPortRouDiVector[i]),
-                      std::ref(PortUser_IntegrationTest::m_publisherPortUserVector[i])));
-    }
+    m_publisherRunFinished.store(true, std::memory_order_relaxed);
 
     if (subscribingThread.joinable())
     {
         subscribingThread.join();
+    }
+
+    EXPECT_THAT(m_receiveCounter.load(std::memory_order_relaxed), Eq(m_sendCounter.load(std::memory_order_relaxed)));
+    EXPECT_FALSE(PortUser_IntegrationTest::m_subscriberPortUserMultiProducer.hasLostChunksSinceLastCall());
+}
+
+TEST_F(PortUser_IntegrationTest, MultiProducer)
+{
+    ::testing::Test::RecordProperty("TEST_ID", "d27279d3-26c0-4489-9208-bd361120525a");
+
+    std::thread subscribingThread(
+        [this] { subscriberThread(m_subscriberPortRouDiMultiProducer, m_subscriberPortUserMultiProducer); });
+
+    for (uint32_t i = 0U; i < NUMBER_OF_PUBLISHERS; i++)
+    {
+        m_publisherThreadVector.emplace_back(
+            [i, this] { publisherThread(i, m_publisherPortRouDiVector[i], m_publisherPortUserVector[i]); });
     }
 
     for (uint32_t i = 0U; i < NUMBER_OF_PUBLISHERS; i++)
@@ -379,9 +384,15 @@ TIMING_TEST_F(PortUser_IntegrationTest, MultiProducer, Repeat(5), [&] {
             m_publisherThreadVector[i].join();
         }
     }
+    m_publisherRunFinished.store(true, std::memory_order_relaxed);
 
-    TIMING_TEST_EXPECT_TRUE(m_sendCounter.load(std::memory_order_relaxed) == m_receiveCounter);
-    TIMING_TEST_EXPECT_FALSE(PortUser_IntegrationTest::m_subscriberPortUserMultiProducer.hasLostChunksSinceLastCall());
-})
+    if (subscribingThread.joinable())
+    {
+        subscribingThread.join();
+    }
+
+    EXPECT_THAT(m_receiveCounter.load(std::memory_order_relaxed), Eq(m_sendCounter.load(std::memory_order_relaxed)));
+    EXPECT_FALSE(PortUser_IntegrationTest::m_subscriberPortUserMultiProducer.hasLostChunksSinceLastCall());
+}
 
 } // namespace

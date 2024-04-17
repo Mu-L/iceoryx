@@ -1,5 +1,6 @@
 // Copyright (c) 2019 by Robert Bosch GmbH. All rights reserved.
 // Copyright (c) 2021 by Apex.AI Inc. All rights reserved.
+// Copyright (c) 2023 by ekxide IO GmbH. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,9 +18,10 @@
 #ifndef IOX_POSH_MEPOO_SEGMENT_MANAGER_INL
 #define IOX_POSH_MEPOO_SEGMENT_MANAGER_INL
 
-#include "iceoryx_posh/error_handling/error_handling.hpp"
 #include "iceoryx_posh/iceoryx_posh_types.hpp"
 #include "iceoryx_posh/internal/mepoo/segment_manager.hpp"
+#include "iceoryx_posh/internal/posh_error_reporting.hpp"
+#include "iox/assertions.hpp"
 
 namespace iox
 {
@@ -27,28 +29,41 @@ namespace mepoo
 {
 template <typename SegmentType>
 inline SegmentManager<SegmentType>::SegmentManager(const SegmentConfig& segmentConfig,
+                                                   const DomainId domainId,
                                                    BumpAllocator* managementAllocator) noexcept
     : m_managementAllocator(managementAllocator)
 {
-    cxx::Expects(segmentConfig.m_sharedMemorySegments.capacity() <= m_segmentContainer.capacity());
+    if (segmentConfig.m_sharedMemorySegments.capacity() > m_segmentContainer.capacity())
+    {
+        IOX_LOG(FATAL,
+                "Trying to add " << segmentConfig.m_sharedMemorySegments.capacity()
+                                 << " segments while the 'SegmentManager' can manage only "
+                                 << m_segmentContainer.capacity());
+        IOX_PANIC("Too many segments");
+    }
     for (const auto& segmentEntry : segmentConfig.m_sharedMemorySegments)
     {
-        createSegment(segmentEntry);
+        createSegment(segmentEntry, domainId);
     }
 }
 
 template <typename SegmentType>
-inline void SegmentManager<SegmentType>::createSegment(const SegmentConfig::SegmentEntry& segmentEntry) noexcept
+inline void SegmentManager<SegmentType>::createSegment(const SegmentConfig::SegmentEntry& segmentEntry,
+                                                       const DomainId domainId) noexcept
 {
-    auto readerGroup = iox::posix::PosixGroup(segmentEntry.m_readerGroup);
-    auto writerGroup = iox::posix::PosixGroup(segmentEntry.m_writerGroup);
-    m_segmentContainer.emplace_back(
-        segmentEntry.m_mempoolConfig, *m_managementAllocator, readerGroup, writerGroup, segmentEntry.m_memoryInfo);
+    auto readerGroup = PosixGroup(segmentEntry.m_readerGroup);
+    auto writerGroup = PosixGroup(segmentEntry.m_writerGroup);
+    m_segmentContainer.emplace_back(segmentEntry.m_mempoolConfig,
+                                    domainId,
+                                    *m_managementAllocator,
+                                    readerGroup,
+                                    writerGroup,
+                                    segmentEntry.m_memoryInfo);
 }
 
 template <typename SegmentType>
 inline typename SegmentManager<SegmentType>::SegmentMappingContainer
-SegmentManager<SegmentType>::getSegmentMappings(const posix::PosixUser& user) noexcept
+SegmentManager<SegmentType>::getSegmentMappings(const PosixUser& user) noexcept
 {
     // get all the groups the user is in
     auto groupContainer = user.getGroups();
@@ -68,16 +83,12 @@ SegmentManager<SegmentType>::getSegmentMappings(const posix::PosixUser& user) no
                 if (!foundInWriterGroup)
                 {
                     mappingContainer.emplace_back(
-                        segment.getWriterGroup().getName(),
-                        segment.getSharedMemoryObject().getBaseAddress(),
-                        segment.getSharedMemoryObject().get_size().expect("failed to get SHM size"),
-                        true,
-                        segment.getSegmentId());
+                        segment.getWriterGroup().getName(), segment.getSegmentSize(), true, segment.getSegmentId());
                     foundInWriterGroup = true;
                 }
                 else
                 {
-                    errorHandler(PoshError::MEPOO__USER_WITH_MORE_THAN_ONE_WRITE_SEGMENT);
+                    IOX_REPORT_FATAL(PoshError::MEPOO__USER_WITH_MORE_THAN_ONE_WRITE_SEGMENT);
                     return SegmentManager::SegmentMappingContainer();
                 }
             }
@@ -91,15 +102,11 @@ SegmentManager<SegmentType>::getSegmentMappings(const posix::PosixUser& user) no
             // only add segments which are not yet added as writer
             if (segment.getReaderGroup() == groupID
                 && std::find_if(mappingContainer.begin(), mappingContainer.end(), [&](const SegmentMapping& mapping) {
-                       return mapping.m_startAddress == segment.getSharedMemoryObject().getBaseAddress();
+                       return mapping.m_segmentId == segment.getSegmentId();
                    }) == mappingContainer.end())
             {
                 mappingContainer.emplace_back(
-                    segment.getWriterGroup().getName(),
-                    segment.getSharedMemoryObject().getBaseAddress(),
-                    segment.getSharedMemoryObject().get_size().expect("Failed to get SHM size."),
-                    false,
-                    segment.getSegmentId());
+                    segment.getWriterGroup().getName(), segment.getSegmentSize(), false, segment.getSegmentId());
             }
         }
     }
@@ -109,7 +116,7 @@ SegmentManager<SegmentType>::getSegmentMappings(const posix::PosixUser& user) no
 
 template <typename SegmentType>
 inline typename SegmentManager<SegmentType>::SegmentUserInformation
-SegmentManager<SegmentType>::getSegmentInformationWithWriteAccessForUser(const posix::PosixUser& user) noexcept
+SegmentManager<SegmentType>::getSegmentInformationWithWriteAccessForUser(const PosixUser& user) noexcept
 {
     auto groupContainer = user.getGroups();
 

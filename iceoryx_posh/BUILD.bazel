@@ -17,7 +17,6 @@
 
 load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library")
 load("//bazel:configure_file.bzl", "configure_file")
-load("//bazel:configure_version.bzl", "configure_version")
 
 #
 ########## posh core lib ##########
@@ -30,60 +29,57 @@ configure_file(
         # FIXME: for values see "iceoryx_posh/cmake/IceoryxPoshDeployment.cmake" ... for now some nice defaults
         "@platforms//os:macos": {
             "IOX_COMMUNICATION_POLICY": "ManyToManyPolicy",
-            "IOX_INTERNAL_MAX_NUMBER_OF_NOTIFIERS": "256",
+            "IOX_EXPERIMENTAL_POSH_FLAG": "false",
             "IOX_MAX_CHUNKS_ALLOCATED_PER_PUBLISHER_SIMULTANEOUSLY": "8",
             "IOX_MAX_CHUNKS_HELD_PER_SUBSCRIBER_SIMULTANEOUSLY": "256",
             "IOX_MAX_CLIENTS_PER_SERVER": "256",
             "IOX_MAX_ID_STRING_LENGTH": "100",
             "IOX_MAX_INTERFACE_NUMBER": "4",
-            "IOX_MAX_NODE_NAME_LENGTH": "100",
-            "IOX_MAX_NODE_NUMBER": "1000",
-            "IOX_MAX_NODE_PER_PROCESS": "50",
+            "IOX_MAX_NODE_NAME_LENGTH": "85",
+            "IOX_MAX_NODE_NUMBER": "300",
+            "IOX_MAX_NODE_PER_PROCESS": "1",
             "IOX_MAX_NUMBER_OF_CONDITION_VARIABLES": "1024",
             "IOX_MAX_NUMBER_OF_MEMPOOLS": "32",
+            "IOX_MAX_NUMBER_OF_NOTIFIERS": "256",
             "IOX_MAX_PROCESS_NUMBER": "300",
             "IOX_MAX_PUBLISHERS": "512",
             "IOX_MAX_PUBLISHER_HISTORY": "16",
+            "IOX_MAX_REQUESTS_PROCESSED_SIMULTANEOUSLY": "4",
             "IOX_MAX_REQUEST_QUEUE_CAPACITY": "1024",
             "IOX_MAX_RESPONSES_PROCESSED_SIMULTANEOUSLY": "16",
             "IOX_MAX_RESPONSE_QUEUE_CAPACITY": "16",
-            "IOX_MAX_RUNTIME_NAME_LENGTH": "98",
+            "IOX_MAX_RUNTIME_NAME_LENGTH": "85",
             "IOX_MAX_SHM_SEGMENTS": "100",
             "IOX_MAX_SUBSCRIBERS": "1024",
             "IOX_MAX_SUBSCRIBERS_PER_PUBLISHER": "256",
         },
         "//conditions:default": {
             "IOX_COMMUNICATION_POLICY": "ManyToManyPolicy",
-            "IOX_INTERNAL_MAX_NUMBER_OF_NOTIFIERS": "256",
+            "IOX_EXPERIMENTAL_POSH_FLAG": "false",
             "IOX_MAX_CHUNKS_ALLOCATED_PER_PUBLISHER_SIMULTANEOUSLY": "8",
             "IOX_MAX_CHUNKS_HELD_PER_SUBSCRIBER_SIMULTANEOUSLY": "256",
             "IOX_MAX_CLIENTS_PER_SERVER": "256",
             "IOX_MAX_ID_STRING_LENGTH": "100",
             "IOX_MAX_INTERFACE_NUMBER": "4",
-            "IOX_MAX_NODE_NAME_LENGTH": "100",
+            "IOX_MAX_NODE_NAME_LENGTH": "87",
             "IOX_MAX_NODE_NUMBER": "1000",
             "IOX_MAX_NODE_PER_PROCESS": "50",
             "IOX_MAX_NUMBER_OF_CONDITION_VARIABLES": "1024",
             "IOX_MAX_NUMBER_OF_MEMPOOLS": "32",
+            "IOX_MAX_NUMBER_OF_NOTIFIERS": "256",
             "IOX_MAX_PROCESS_NUMBER": "300",
             "IOX_MAX_PUBLISHERS": "512",
             "IOX_MAX_PUBLISHER_HISTORY": "16",
+            "IOX_MAX_REQUESTS_PROCESSED_SIMULTANEOUSLY": "4",
             "IOX_MAX_REQUEST_QUEUE_CAPACITY": "1024",
             "IOX_MAX_RESPONSES_PROCESSED_SIMULTANEOUSLY": "16",
             "IOX_MAX_RESPONSE_QUEUE_CAPACITY": "16",
-            "IOX_MAX_RUNTIME_NAME_LENGTH": "100",
+            "IOX_MAX_RUNTIME_NAME_LENGTH": "87",
             "IOX_MAX_SHM_SEGMENTS": "100",
             "IOX_MAX_SUBSCRIBERS": "1024",
             "IOX_MAX_SUBSCRIBERS_PER_PUBLISHER": "256",
         },
     }),
-)
-
-configure_version(
-    name = "iceoryx_versions_hpp",
-    src = "cmake/iceoryx_versions.hpp.in",
-    out = "include/iceoryx_versions.hpp",
-    version_from = "//:VERSION",
 )
 
 #
@@ -110,26 +106,30 @@ iox_roudi_executable_files = [
 cc_library(
     name = "iceoryx_posh",
     srcs = glob(
-               [
-                   "source/log/**",
-                   "source/capro/**",
-                   "source/error_handling/**",
-                   "source/mepoo/**",
-                   "source/popo/**",
-                   "source/version/**",
-                   "source/runtime/**",
-               ],
-               exclude = iceory_posh_config_files,
-           ) +
-           iceory_posh_extra_roudi_files,
-    hdrs = glob(["include/**"]) + [
+        [
+            "source/log/**",
+            "source/capro/**",
+            "source/error_handling/**",
+            "source/mepoo/**",
+            "source/popo/**",
+            "source/version/**",
+            "source/runtime/**",
+            "experimental/source/**",
+        ],
+        exclude = iceory_posh_config_files,
+    ) + [
+        "source/iceoryx_posh_types.cpp",
+        "source/posh_error_reporting.cpp",
+    ] + iceory_posh_extra_roudi_files,
+    hdrs = glob(["include/**"]) + glob(["experimental/include/**"]) + [
         ":iceoryx_posh_deployment_hpp",
-        ":iceoryx_versions_hpp",
     ],
-    strip_include_prefix = "include",
+    includes = [
+        "experimental/include/",
+        "include/",
+    ],
     visibility = ["//visibility:public"],
     deps = [
-        "//iceoryx_dust",
         "//iceoryx_hoofs",
     ],
 )

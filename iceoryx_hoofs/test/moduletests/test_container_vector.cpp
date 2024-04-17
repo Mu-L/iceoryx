@@ -15,9 +15,11 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "iceoryx_hoofs/error_handling/error_handling.hpp"
-#include "iceoryx_hoofs/testing/fatal_failure.hpp"
+#include "iceoryx_hoofs/testing/lifetime_and_assignment_tracker.hpp"
+#include "iox/detail/hoofs_error_reporting.hpp"
 #include "iox/vector.hpp"
+
+#include "iceoryx_hoofs/testing/fatal_failure.hpp"
 #include "test.hpp"
 
 #include <vector>
@@ -31,107 +33,18 @@ using namespace iox::testing;
 class vector_test : public Test
 {
   public:
-    static uint64_t cTor;
-    static uint64_t customCTor;
-    static uint64_t copyCTor;
-    static uint64_t moveCTor;
-    static uint64_t moveAssignment;
-    static uint64_t copyAssignment;
-    static uint64_t dTor;
-    static uint64_t classValue;
-
-    static std::vector<uint64_t> dtorOrder;
-
-    class CTorTest
-    {
-      public:
-        CTorTest()
-        {
-            cTor++;
-            classValue = value;
-        }
-
-        explicit CTorTest(const uint64_t value)
-            : value(value)
-        {
-            customCTor++;
-            classValue = value;
-        }
-
-        CTorTest(const CTorTest& rhs)
-            : value(rhs.value)
-        {
-            copyCTor++;
-            classValue = value;
-        }
-
-        CTorTest(CTorTest&& rhs) noexcept
-            : value(rhs.value)
-        {
-            moveCTor++;
-            classValue = value;
-        }
-
-        CTorTest& operator=(const CTorTest& rhs)
-        {
-            if (this != &rhs)
-            {
-                copyAssignment++;
-                value = rhs.value;
-                classValue = value;
-            }
-            return *this;
-        }
-
-        CTorTest& operator=(CTorTest&& rhs) noexcept
-        {
-            moveAssignment++;
-            value = rhs.value;
-            classValue = value;
-            return *this;
-        }
-
-        bool operator==(const CTorTest& rhs) const
-        {
-            return value == rhs.value;
-        }
-
-        ~CTorTest()
-        {
-            dTor++;
-            classValue = value;
-            dtorOrder.emplace_back(value);
-        }
-
-        uint64_t value = 0;
-    };
+    using CTorTest = LifetimeAndAssignmentTracker<>;
 
     void SetUp() override
     {
-        cTor = 0U;
-        customCTor = 0U;
-        copyCTor = 0U;
-        moveCTor = 0U;
-        moveAssignment = 0U;
-        copyAssignment = 0U;
-        dTor = 0U;
-        classValue = 0U;
-        dtorOrder.clear();
+        stats.reset();
     }
+
+    CTorTest::Statistics& stats = CTorTest::stats;
 
     static constexpr uint64_t VECTOR_CAPACITY{10};
     vector<uint64_t, VECTOR_CAPACITY> sut;
 };
-
-uint64_t vector_test::cTor;
-uint64_t vector_test::customCTor;
-uint64_t vector_test::copyCTor;
-uint64_t vector_test::moveCTor;
-uint64_t vector_test::moveAssignment;
-uint64_t vector_test::copyAssignment;
-uint64_t vector_test::dTor;
-uint64_t vector_test::classValue;
-std::vector<uint64_t> vector_test::dtorOrder;
 
 TEST_F(vector_test, NewlyCreatedVectorIsEmpty)
 {
@@ -268,10 +181,10 @@ TEST_F(vector_test, PopBackNonEmptyVector)
     vector<CTorTest, 10U> sut;
     sut.emplace_back(101U);
     ASSERT_THAT(sut.size(), Eq(1U));
-    dTor = 0;
+    stats.dTor = 0;
     sut.pop_back();
     ASSERT_THAT(sut.size(), Eq(0U));
-    ASSERT_THAT(dTor, Eq(1));
+    ASSERT_THAT(stats.dTor, Eq(1));
 }
 
 TEST_F(vector_test, SizeIncreasesWhenElementIsAdded)
@@ -333,7 +246,7 @@ TEST_F(vector_test, CopyConstructor)
     sut1.emplace_back(102U);
 
     vector<CTorTest, 10> sut2(sut1);
-    EXPECT_THAT(copyCTor, Eq(2U));
+    EXPECT_THAT(stats.copyCTor, Eq(2U));
     EXPECT_THAT(sut2.at(0).value, Eq(101U));
     EXPECT_THAT(sut2.at(1).value, Eq(102U));
     EXPECT_THAT(sut2.empty(), Eq(false));
@@ -347,7 +260,7 @@ TEST_F(vector_test, CopyConstructorWithEmptyVector)
     // NOLINTJUSTIFICATION Testing empty copy
     // NOLINTNEXTLINE(performance-unnecessary-copy-initialization)
     vector<CTorTest, 10> sut2(sut1);
-    EXPECT_THAT(copyCTor, Eq(0U));
+    EXPECT_THAT(stats.copyCTor, Eq(0U));
     EXPECT_THAT(sut2.size(), Eq(0U));
     EXPECT_THAT(sut2.empty(), Eq(true));
 }
@@ -367,7 +280,7 @@ TEST_F(vector_test, CopyConstructorWithFullVector)
         EXPECT_THAT(sut2.at(i).value, Eq(i));
     }
 
-    EXPECT_THAT(copyCTor, Eq(10U));
+    EXPECT_THAT(stats.copyCTor, Eq(10U));
     EXPECT_THAT(sut2.size(), Eq(10U));
     EXPECT_THAT(sut2.empty(), Eq(false));
 }
@@ -381,7 +294,7 @@ TEST_F(vector_test, MoveConstructor)
 
     vector<CTorTest, 10U> sut2(std::move(sut1));
 
-    EXPECT_THAT(moveCTor, Eq(2U));
+    EXPECT_THAT(stats.moveCTor, Eq(2U));
     EXPECT_THAT(sut2.at(0).value, Eq(8101U));
     EXPECT_THAT(sut2.at(1).value, Eq(8102U));
     EXPECT_THAT(sut2.empty(), Eq(false));
@@ -395,7 +308,7 @@ TEST_F(vector_test, MoveConstructorWithEmptyVector)
 
     vector<CTorTest, 10U> sut2(std::move(sut1));
 
-    EXPECT_THAT(moveCTor, Eq(0U));
+    EXPECT_THAT(stats.moveCTor, Eq(0U));
     EXPECT_THAT(sut2.size(), Eq(0U));
     EXPECT_THAT(sut2.empty(), Eq(true));
 }
@@ -416,7 +329,7 @@ TEST_F(vector_test, MoveConstructorWithFullVector)
         EXPECT_THAT(sut2.at(i).value, Eq(i));
     }
 
-    EXPECT_THAT(moveCTor, Eq(10U));
+    EXPECT_THAT(stats.moveCTor, Eq(10U));
     EXPECT_THAT(sut2.size(), Eq(10U));
     EXPECT_THAT(sut2.empty(), Eq(false));
 }
@@ -427,7 +340,7 @@ TEST_F(vector_test, DestructorWithEmptyVector)
     {
         vector<CTorTest, 10U> sut1;
     }
-    EXPECT_THAT(dTor, Eq(0U));
+    EXPECT_THAT(stats.dTor, Eq(0U));
 }
 
 TEST_F(vector_test, DestructorSomeElements)
@@ -439,7 +352,7 @@ TEST_F(vector_test, DestructorSomeElements)
         sut1.emplace_back(9191U);
         sut1.emplace_back(1U);
     }
-    EXPECT_THAT(dTor, Eq(3U));
+    EXPECT_THAT(stats.dTor, Eq(3U));
 }
 
 TEST_F(vector_test, DestructorWithFullVector)
@@ -454,7 +367,7 @@ TEST_F(vector_test, DestructorWithFullVector)
         }
     }
 
-    EXPECT_THAT(dTor, Eq(CAPACITY));
+    EXPECT_THAT(stats.dTor, Eq(CAPACITY));
 }
 
 TEST_F(vector_test, EmplacingElementInTheMiddleCallsDTor)
@@ -470,17 +383,17 @@ TEST_F(vector_test, EmplacingElementInTheMiddleCallsDTor)
             sut.emplace_back(1234U);
         }
 
-        EXPECT_THAT(customCTor, Eq(EXPECTED_NUMBER_OF_CTOR_CALLS - 1U));
+        EXPECT_THAT(stats.customCTor, Eq(EXPECTED_NUMBER_OF_CTOR_CALLS - 1U));
         EXPECT_TRUE(sut.emplace(EMPLACE_POSITION, 42U));
-        EXPECT_THAT(customCTor, Eq(EXPECTED_NUMBER_OF_CTOR_CALLS));
-        EXPECT_THAT(moveCTor, Eq(1U));
-        EXPECT_THAT(moveAssignment, Eq(CAPACITY_OF_VECTOR - 1U - EMPLACE_POSITION - 1U));
-        EXPECT_THAT(dTor, Eq(1U));
+        EXPECT_THAT(stats.customCTor, Eq(EXPECTED_NUMBER_OF_CTOR_CALLS));
+        EXPECT_THAT(stats.moveCTor, Eq(1U));
+        EXPECT_THAT(stats.moveAssignment, Eq(CAPACITY_OF_VECTOR - 1U - EMPLACE_POSITION - 1U));
+        EXPECT_THAT(stats.dTor, Eq(1U));
     }
     // Last element in the vector is moved and not constructed, hence #moveCTor + #customCTor = #dTor
-    EXPECT_THAT(moveCTor, Eq(1U));
-    EXPECT_THAT(customCTor, Eq(EXPECTED_NUMBER_OF_CTOR_CALLS));
-    EXPECT_THAT(dTor, Eq(EXPECTED_NUMBER_OF_CTOR_CALLS + 1U));
+    EXPECT_THAT(stats.moveCTor, Eq(1U));
+    EXPECT_THAT(stats.customCTor, Eq(EXPECTED_NUMBER_OF_CTOR_CALLS));
+    EXPECT_THAT(stats.dTor, Eq(EXPECTED_NUMBER_OF_CTOR_CALLS + 1U));
 }
 
 TEST_F(vector_test, CopyAssignmentWithEmptySource)
@@ -494,9 +407,9 @@ TEST_F(vector_test, CopyAssignmentWithEmptySource)
 
     sut1 = sut2;
 
-    EXPECT_THAT(dTor, Eq(3U));
-    EXPECT_THAT(copyAssignment, Eq(0U));
-    EXPECT_THAT(copyCTor, Eq(0U));
+    EXPECT_THAT(stats.dTor, Eq(3U));
+    EXPECT_THAT(stats.copyAssignment, Eq(0U));
+    EXPECT_THAT(stats.copyCTor, Eq(0U));
     EXPECT_THAT(sut1.size(), Eq(0U));
     EXPECT_THAT(sut1.empty(), Eq(true));
 }
@@ -512,9 +425,9 @@ TEST_F(vector_test, CopyAssignmentWithEmptyDestination)
 
     sut2 = sut1;
 
-    EXPECT_THAT(dTor, Eq(0U));
-    EXPECT_THAT(copyAssignment, Eq(0U));
-    EXPECT_THAT(copyCTor, Eq(3U));
+    EXPECT_THAT(stats.dTor, Eq(0U));
+    EXPECT_THAT(stats.copyAssignment, Eq(0U));
+    EXPECT_THAT(stats.copyCTor, Eq(3U));
     EXPECT_THAT(sut2.size(), Eq(3U));
     EXPECT_THAT(sut2.empty(), Eq(false));
 
@@ -537,9 +450,9 @@ TEST_F(vector_test, CopyAssignmentWithLargerDestination)
 
     sut1 = sut2;
 
-    EXPECT_THAT(dTor, Eq(2U));
-    EXPECT_THAT(copyAssignment, Eq(2U));
-    EXPECT_THAT(copyCTor, Eq(0U));
+    EXPECT_THAT(stats.dTor, Eq(2U));
+    EXPECT_THAT(stats.copyAssignment, Eq(2U));
+    EXPECT_THAT(stats.copyCTor, Eq(0U));
     EXPECT_THAT(sut1.size(), Eq(2U));
     EXPECT_THAT(sut1.empty(), Eq(false));
     EXPECT_THAT(sut1.at(0U).value, Eq(313U));
@@ -560,9 +473,9 @@ TEST_F(vector_test, CopyAssignmentWithLargerSource)
 
     sut2 = sut1;
 
-    EXPECT_THAT(dTor, Eq(0U));
-    EXPECT_THAT(copyAssignment, Eq(2U));
-    EXPECT_THAT(copyCTor, Eq(2U));
+    EXPECT_THAT(stats.dTor, Eq(0U));
+    EXPECT_THAT(stats.copyAssignment, Eq(2U));
+    EXPECT_THAT(stats.copyCTor, Eq(2U));
     EXPECT_THAT(sut2.size(), Eq(4U));
     EXPECT_THAT(sut2.empty(), Eq(false));
     EXPECT_THAT(sut2.at(0U).value, Eq(15842U));
@@ -583,11 +496,11 @@ TEST_F(vector_test, ReverseDestructionOrderInCopyAssignment)
     }
     sut1 = sut2;
 
-    EXPECT_THAT(dTor, Eq(VECTOR_CAPACITY));
-    ASSERT_THAT(dtorOrder.size(), Eq(VECTOR_CAPACITY));
+    EXPECT_THAT(stats.dTor, Eq(VECTOR_CAPACITY));
+    ASSERT_THAT(stats.dTorOrder.size(), Eq(VECTOR_CAPACITY));
     for (uint64_t i{0}; i < VECTOR_CAPACITY; ++i)
     {
-        EXPECT_THAT(dtorOrder[i], Eq(VECTOR_CAPACITY - 1 - i));
+        EXPECT_THAT(stats.dTorOrder[i], Eq(VECTOR_CAPACITY - 1 - i));
     }
 }
 
@@ -603,11 +516,11 @@ TEST_F(vector_test, ReverseDestructionOrderInMoveAssignment)
     }
     sut1 = std::move(sut2);
 
-    EXPECT_THAT(dTor, Eq(VECTOR_CAPACITY));
-    ASSERT_THAT(dtorOrder.size(), Eq(VECTOR_CAPACITY));
+    EXPECT_THAT(stats.dTor, Eq(VECTOR_CAPACITY));
+    ASSERT_THAT(stats.dTorOrder.size(), Eq(VECTOR_CAPACITY));
     for (uint64_t i{0}; i < VECTOR_CAPACITY; ++i)
     {
-        EXPECT_THAT(dtorOrder[i], Eq(VECTOR_CAPACITY - i));
+        EXPECT_THAT(stats.dTorOrder[i], Eq(VECTOR_CAPACITY - i));
     }
 }
 
@@ -622,9 +535,9 @@ TEST_F(vector_test, MoveAssignmentWithEmptySource)
 
     sut1 = std::move(sut2);
 
-    EXPECT_THAT(dTor, Eq(3U));
-    EXPECT_THAT(moveAssignment, Eq(0U));
-    EXPECT_THAT(moveCTor, Eq(0U));
+    EXPECT_THAT(stats.dTor, Eq(3U));
+    EXPECT_THAT(stats.moveAssignment, Eq(0U));
+    EXPECT_THAT(stats.moveCTor, Eq(0U));
     EXPECT_THAT(sut1.size(), Eq(0U));
     EXPECT_THAT(sut1.empty(), Eq(true));
 }
@@ -640,9 +553,9 @@ TEST_F(vector_test, MoveAssignmentWithEmptyDestination)
 
     sut2 = std::move(sut1);
 
-    EXPECT_THAT(dTor, Eq(3U));
-    EXPECT_THAT(moveAssignment, Eq(0U));
-    EXPECT_THAT(moveCTor, Eq(3U));
+    EXPECT_THAT(stats.dTor, Eq(3U));
+    EXPECT_THAT(stats.moveAssignment, Eq(0U));
+    EXPECT_THAT(stats.moveCTor, Eq(3U));
     EXPECT_THAT(sut2.size(), Eq(3U));
     EXPECT_THAT(sut2.empty(), Eq(false));
     EXPECT_THAT(sut2.at(0U).value, Eq(5812U));
@@ -664,9 +577,9 @@ TEST_F(vector_test, MoveAssignmentWithLargerDestination)
 
     sut1 = std::move(sut2);
 
-    EXPECT_THAT(dTor, Eq(4U));
-    EXPECT_THAT(moveAssignment, Eq(2U));
-    EXPECT_THAT(moveCTor, Eq(0U));
+    EXPECT_THAT(stats.dTor, Eq(4U));
+    EXPECT_THAT(stats.moveAssignment, Eq(2U));
+    EXPECT_THAT(stats.moveCTor, Eq(0U));
     EXPECT_THAT(sut1.size(), Eq(2U));
     EXPECT_THAT(sut1.empty(), Eq(false));
     EXPECT_THAT(sut1.at(0U).value, Eq(313U));
@@ -687,9 +600,9 @@ TEST_F(vector_test, MoveAssignmentWithLargerSource)
 
     sut2 = std::move(sut1);
 
-    EXPECT_THAT(dTor, Eq(4U));
-    EXPECT_THAT(moveAssignment, Eq(2U));
-    EXPECT_THAT(moveCTor, Eq(2U));
+    EXPECT_THAT(stats.dTor, Eq(4U));
+    EXPECT_THAT(stats.moveAssignment, Eq(2U));
+    EXPECT_THAT(stats.moveCTor, Eq(2U));
     EXPECT_THAT(sut2.size(), Eq(4U));
     EXPECT_THAT(sut2.empty(), Eq(false));
     EXPECT_THAT(sut2.at(0U).value, Eq(15842U));
@@ -943,8 +856,8 @@ TEST_F(vector_test, EraseOfLastElementCallsDTorOnly)
 
     EXPECT_TRUE(sut1.erase(sut1.begin() + 2U));
 
-    EXPECT_THAT(dTor, Eq(1U));
-    EXPECT_THAT(classValue, Eq(9U));
+    EXPECT_THAT(stats.dTor, Eq(1U));
+    EXPECT_THAT(stats.classValue, Eq(9U));
 }
 
 TEST_F(vector_test, EraseOfMiddleElementCallsDTorAndMove)
@@ -959,8 +872,8 @@ TEST_F(vector_test, EraseOfMiddleElementCallsDTorAndMove)
 
     EXPECT_TRUE(sut1.erase(sut1.begin() + 2U));
 
-    EXPECT_THAT(dTor, Eq(1U));
-    EXPECT_THAT(moveAssignment, Eq(2U));
+    EXPECT_THAT(stats.dTor, Eq(1U));
+    EXPECT_THAT(stats.moveAssignment, Eq(2U));
 }
 
 TEST_F(vector_test, AccessOfNonExistingElementOnEmptyVectorLeadTermination)
@@ -970,7 +883,7 @@ TEST_F(vector_test, AccessOfNonExistingElementOnEmptyVectorLeadTermination)
     ASSERT_THAT(sut.empty(), Eq(true));
 
     const uint64_t accessOffset{sut.size() + 1U};
-    IOX_EXPECT_FATAL_FAILURE<iox::HoofsError>([&] { sut.at(accessOffset); }, iox::HoofsError::EXPECTS_ENSURES_FAILED);
+    IOX_EXPECT_FATAL_FAILURE([&] { sut.at(accessOffset); }, iox::er::ENFORCE_VIOLATION);
 }
 
 TEST_F(vector_test, AccessOfNonExistingElementOnPartiallyFilledVectorLeadTermination)
@@ -984,7 +897,7 @@ TEST_F(vector_test, AccessOfNonExistingElementOnPartiallyFilledVectorLeadTermina
     }
 
     const uint64_t accessOffset{sut.size() + 1U};
-    IOX_EXPECT_FATAL_FAILURE<iox::HoofsError>([&] { sut.at(accessOffset); }, iox::HoofsError::EXPECTS_ENSURES_FAILED);
+    IOX_EXPECT_FATAL_FAILURE([&] { sut.at(accessOffset); }, iox::er::ENFORCE_VIOLATION);
 }
 
 TEST_F(vector_test, AccessOfNonExistingElementOnFullVectorLeadTermination)
@@ -1000,7 +913,7 @@ TEST_F(vector_test, AccessOfNonExistingElementOnFullVectorLeadTermination)
     ASSERT_THAT(sut.size(), Eq(VECTOR_CAPACITY));
 
     const uint64_t accessOffset{sut.size() + 1U};
-    IOX_EXPECT_FATAL_FAILURE<iox::HoofsError>([&] { sut.at(accessOffset); }, iox::HoofsError::EXPECTS_ENSURES_FAILED);
+    IOX_EXPECT_FATAL_FAILURE([&] { sut.at(accessOffset); }, iox::er::ENFORCE_VIOLATION);
 }
 
 TEST_F(vector_test, OutOfBoundsAccessOnEmptyVectorLeadsToTermination)
@@ -1010,7 +923,7 @@ TEST_F(vector_test, OutOfBoundsAccessOnEmptyVectorLeadsToTermination)
     ASSERT_THAT(sut.empty(), Eq(true));
 
     const uint64_t accessOffset{sut.size() + 1U};
-    IOX_EXPECT_FATAL_FAILURE<iox::HoofsError>([&] { sut[accessOffset]; }, iox::HoofsError::EXPECTS_ENSURES_FAILED);
+    IOX_EXPECT_FATAL_FAILURE([&] { sut[accessOffset]; }, iox::er::ENFORCE_VIOLATION);
 }
 
 TEST_F(vector_test, OutOfBoundsAccessOnPartiallyFilledVectorLeadsToTermination)
@@ -1024,7 +937,7 @@ TEST_F(vector_test, OutOfBoundsAccessOnPartiallyFilledVectorLeadsToTermination)
     }
 
     const uint64_t accessOffset{sut.size() + 1U};
-    IOX_EXPECT_FATAL_FAILURE<iox::HoofsError>([&] { sut[accessOffset]; }, iox::HoofsError::EXPECTS_ENSURES_FAILED);
+    IOX_EXPECT_FATAL_FAILURE([&] { sut[accessOffset]; }, iox::er::ENFORCE_VIOLATION);
 }
 
 TEST_F(vector_test, OutOfBoundsAccessOnFullVectorLeadsToTermination)
@@ -1038,7 +951,7 @@ TEST_F(vector_test, OutOfBoundsAccessOnFullVectorLeadsToTermination)
     }
 
     const uint64_t accessOffset{sut.size() + 1U};
-    IOX_EXPECT_FATAL_FAILURE<iox::HoofsError>([&] { sut[accessOffset]; }, iox::HoofsError::EXPECTS_ENSURES_FAILED);
+    IOX_EXPECT_FATAL_FAILURE([&] { sut[accessOffset]; }, iox::er::ENFORCE_VIOLATION);
 }
 
 TEST_F(vector_test, EraseOfFrontElementCallsDTorAndMove)
@@ -1053,8 +966,8 @@ TEST_F(vector_test, EraseOfFrontElementCallsDTorAndMove)
 
     EXPECT_TRUE(sut1.erase(sut1.begin()));
 
-    EXPECT_THAT(dTor, Eq(1U));
-    EXPECT_THAT(moveAssignment, Eq(4U));
+    EXPECT_THAT(stats.dTor, Eq(1U));
+    EXPECT_THAT(stats.moveAssignment, Eq(4U));
 }
 
 TEST_F(vector_test, EraseMiddleElementDataCorrectAfterwards)
@@ -1169,7 +1082,7 @@ TEST_F(vector_test, ConstructorWithSizeParameterSmallerThanCapacity)
 {
     ::testing::Test::RecordProperty("TEST_ID", "b55f3818-ded5-420a-ad9a-88d5e90b429e");
     vector<CTorTest, 5U> sut(2U);
-    EXPECT_THAT(vector_test::cTor, Eq(2U));
+    EXPECT_THAT(stats.cTor, Eq(2U));
     ASSERT_THAT(sut.size(), Eq(2U));
 }
 
@@ -1177,7 +1090,7 @@ TEST_F(vector_test, ConstructorWithSizeParameterGreaterThanCapacity)
 {
     ::testing::Test::RecordProperty("TEST_ID", "57d86dd4-ba23-4911-a451-bbc78d3f899a");
     vector<CTorTest, 5U> sut(7U);
-    EXPECT_THAT(vector_test::cTor, Eq(5U));
+    EXPECT_THAT(stats.cTor, Eq(5U));
     ASSERT_THAT(sut.size(), Eq(5U));
 }
 
@@ -1348,10 +1261,10 @@ TEST_F(vector_test, FullVectorDestroysElementsInReverseOrder)
         }
     }
 
-    ASSERT_THAT(dtorOrder.size(), Eq(VECTOR_CAPACITY));
+    ASSERT_THAT(stats.dTorOrder.size(), Eq(VECTOR_CAPACITY));
     for (uint64_t i = 0U; i < VECTOR_CAPACITY; ++i)
     {
-        EXPECT_THAT(dtorOrder[i], Eq(INDEX_END - i + SOME_OFFSET));
+        EXPECT_THAT(stats.dTorOrder[i], Eq(INDEX_END - i + SOME_OFFSET));
     }
 }
 
@@ -1372,10 +1285,10 @@ TEST_F(vector_test, PartiallyFullVectorDestroysElementsInReverseOrder)
         }
     }
 
-    ASSERT_THAT(dtorOrder.size(), Eq(VECTOR_SIZE));
+    ASSERT_THAT(stats.dTorOrder.size(), Eq(VECTOR_SIZE));
     for (uint64_t i = 0U; i < VECTOR_SIZE; ++i)
     {
-        EXPECT_THAT(dtorOrder[i], Eq(INDEX_END - i + SOME_OFFSET));
+        EXPECT_THAT(stats.dTorOrder[i], Eq(INDEX_END - i + SOME_OFFSET));
     }
 }
 
@@ -1465,11 +1378,11 @@ TEST_F(vector_test, SizeDecreaseWithResizeAndDefaultCTorWorks)
     }
 
     EXPECT_TRUE(sut.resize(7U));
-    EXPECT_THAT(dTor, Eq(3U));
-    ASSERT_THAT(dtorOrder.size(), Eq(3U));
-    EXPECT_THAT(dtorOrder[0], Eq(9));
-    EXPECT_THAT(dtorOrder[1], Eq(8));
-    EXPECT_THAT(dtorOrder[2], Eq(7));
+    EXPECT_THAT(stats.dTor, Eq(3U));
+    ASSERT_THAT(stats.dTorOrder.size(), Eq(3U));
+    EXPECT_THAT(stats.dTorOrder[0], Eq(9));
+    EXPECT_THAT(stats.dTorOrder[1], Eq(8));
+    EXPECT_THAT(stats.dTorOrder[2], Eq(7));
 }
 
 TEST_F(vector_test, SizeDecreaseWithResizeAndTemplateValueWorks)
@@ -1483,11 +1396,11 @@ TEST_F(vector_test, SizeDecreaseWithResizeAndTemplateValueWorks)
     }
 
     EXPECT_TRUE(sut.resize(7U, 66807U));
-    EXPECT_THAT(dTor, Eq(3U));
-    ASSERT_THAT(dtorOrder.size(), Eq(3U));
-    EXPECT_THAT(dtorOrder[0], Eq(19));
-    EXPECT_THAT(dtorOrder[1], Eq(18));
-    EXPECT_THAT(dtorOrder[2], Eq(17));
+    EXPECT_THAT(stats.dTor, Eq(3U));
+    ASSERT_THAT(stats.dTorOrder.size(), Eq(3U));
+    EXPECT_THAT(stats.dTorOrder[0], Eq(19));
+    EXPECT_THAT(stats.dTorOrder[1], Eq(18));
+    EXPECT_THAT(stats.dTorOrder[2], Eq(17));
 }
 
 TEST_F(vector_test, ResizeWithDefaultCTorChangesNothingIfSizeAlreadyFits)

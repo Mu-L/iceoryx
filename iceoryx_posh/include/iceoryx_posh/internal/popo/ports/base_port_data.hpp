@@ -32,16 +32,14 @@ namespace popo
 /// @brief Defines different base port data
 struct BasePortData
 {
-    /// @brief Constructor for base port data members
-    BasePortData() noexcept = default;
-
     /// @brief Constructor
     /// @param[in] serviceDescription creates the service service description
     /// @param[in] runtimeName Name of the application's runtime
     /// @param[in] nodeName Name of the node
+    /// @param[in] uniqueRouDiId to tie the port to
     BasePortData(const capro::ServiceDescription& serviceDescription,
                  const RuntimeName_t& runtimeName,
-                 const NodeName_t& nodeName) noexcept;
+                 const roudi::UniqueRouDiId uniqueRoudiId) noexcept;
 
     BasePortData(const BasePortData&) = delete;
     BasePortData& operator=(const BasePortData&) = delete;
@@ -51,7 +49,6 @@ struct BasePortData
 
     capro::ServiceDescription m_serviceDescription;
     RuntimeName_t m_runtimeName;
-    NodeName_t m_nodeName;
     UniquePortId m_uniqueId;
     std::atomic_bool m_toBeDestroyed{false};
 };

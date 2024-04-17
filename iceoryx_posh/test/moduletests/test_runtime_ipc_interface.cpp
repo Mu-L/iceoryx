@@ -15,13 +15,15 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "iceoryx_dust/cxx/std_chrono_support.hpp"
-#include "iceoryx_dust/posix_wrapper/message_queue.hpp"
-#include "iceoryx_dust/posix_wrapper/named_pipe.hpp"
-#include "iceoryx_hoofs/internal/posix_wrapper/unix_domain_socket.hpp"
 #include "iceoryx_platform/platform_settings.hpp"
 #include "iceoryx_posh/internal/runtime/ipc_interface_base.hpp"
+#include "iox/message_queue.hpp"
+#include "iox/named_pipe.hpp"
+#include "iox/std_chrono_support.hpp"
+#include "iox/std_string_support.hpp"
+#include "iox/unix_domain_socket.hpp"
 
+#include "iceoryx_hoofs/testing/fatal_failure.hpp"
 #include "test.hpp"
 
 #include <chrono>
@@ -30,7 +32,7 @@ namespace
 {
 using namespace ::testing;
 using namespace iox;
-using namespace iox::posix;
+using namespace iox::testing;
 using namespace iox::units::duration_literals;
 
 #if defined(__APPLE__)
@@ -67,7 +69,7 @@ class IpcInterface_test : public Test
         SutType(const RuntimeName_t& runtimeName,
                 const uint64_t maxMessages = MaxMsgNumber,
                 const uint64_t messageSize = MaxMsgSize) noexcept
-            : IpcChannelType(runtimeName, maxMessages, messageSize)
+            : IpcChannelType(runtimeName, DEFAULT_DOMAIN_ID, ResourceType::USER_DEFINED, maxMessages, messageSize)
         {
         }
         using IpcChannelType::ipcChannelMapsToFile;
@@ -78,10 +80,10 @@ class IpcInterface_test : public Test
     void SetUp()
     {
         server.emplace(goodName);
-        ASSERT_TRUE(server->openIpcChannel(IpcChannelSide::SERVER));
+        ASSERT_TRUE(server->openIpcChannel(PosixIpcChannelSide::SERVER));
 
         client.emplace(goodName);
-        ASSERT_TRUE(client->openIpcChannel(IpcChannelSide::CLIENT));
+        ASSERT_TRUE(client->openIpcChannel(PosixIpcChannelSide::CLIENT));
     }
 
     void TearDown()
@@ -110,25 +112,22 @@ TYPED_TEST(IpcInterface_test, CreateWithTooLargeMessageSizeWillBeClampedToMaxMes
 {
     ::testing::Test::RecordProperty("TEST_ID", "c9e63950-e7f1-4efc-9d55-a5c445ee7dee");
     typename TestFixture::SutType sut(goodName, TestFixture::MaxMsgNumber, TestFixture::MaxMsgSize + 1);
-    EXPECT_TRUE(sut.openIpcChannel(IpcChannelSide::SERVER));
+    EXPECT_TRUE(sut.openIpcChannel(PosixIpcChannelSide::SERVER));
     EXPECT_TRUE(sut.isInitialized());
 }
 
-TYPED_TEST(IpcInterface_test, CreateNoNameLeadsToError)
+TYPED_TEST(IpcInterface_test, CreateWithNoNameFails)
 {
     ::testing::Test::RecordProperty("TEST_ID", "3ffe2cf2-26f4-4b93-8baf-d997dc71e610");
-    typename TestFixture::SutType sut("");
-    EXPECT_FALSE(sut.openIpcChannel(IpcChannelSide::SERVER));
-    EXPECT_FALSE(sut.isInitialized());
+
+    IOX_EXPECT_FATAL_FAILURE([] { typename TestFixture::SutType sut(""); }, iox::er::FATAL);
 }
 
-TYPED_TEST(IpcInterface_test, CreateWithLeadingSlashWorks)
+TYPED_TEST(IpcInterface_test, CreateWithLeadingSlashFails)
 {
     ::testing::Test::RecordProperty("TEST_ID", "89340ebd-f80d-480b-833f-da37dff06cef");
 
-    typename TestFixture::SutType sut(slashName);
-    EXPECT_TRUE(sut.openIpcChannel(IpcChannelSide::SERVER));
-    EXPECT_TRUE(sut.isInitialized());
+    IOX_EXPECT_FATAL_FAILURE([] { typename TestFixture::SutType sut(slashName); }, iox::er::FATAL);
 }
 
 TYPED_TEST(IpcInterface_test, CreateAgainWorks)
@@ -136,11 +135,11 @@ TYPED_TEST(IpcInterface_test, CreateAgainWorks)
     ::testing::Test::RecordProperty("TEST_ID", "74f7e785-36fc-418c-9807-3dc95ae8aa91");
     // if there is a leftover from a crashed channel, we can create a new one. This is simulated by creating twice
     typename TestFixture::SutType first(anotherGoodName);
-    EXPECT_TRUE(first.openIpcChannel(IpcChannelSide::SERVER));
+    EXPECT_TRUE(first.openIpcChannel(PosixIpcChannelSide::SERVER));
     EXPECT_TRUE(first.isInitialized());
 
     typename TestFixture::SutType second(anotherGoodName);
-    EXPECT_TRUE(second.openIpcChannel(IpcChannelSide::SERVER));
+    EXPECT_TRUE(second.openIpcChannel(PosixIpcChannelSide::SERVER));
     EXPECT_TRUE(second.isInitialized());
 }
 
@@ -161,10 +160,10 @@ TYPED_TEST(IpcInterface_test, CreateAgainAndEmptyWorks)
 
     optional<typename TestFixture::SutType> server;
     server.emplace(anotherGoodName);
-    ASSERT_TRUE(server->openIpcChannel(IpcChannelSide::SERVER));
+    ASSERT_TRUE(server->openIpcChannel(PosixIpcChannelSide::SERVER));
 
     typename TestFixture::SutType client(anotherGoodName);
-    ASSERT_TRUE(client.openIpcChannel(IpcChannelSide::CLIENT));
+    ASSERT_TRUE(client.openIpcChannel(PosixIpcChannelSide::CLIENT));
 
     // send and receive as usual
     runtime::IpcMessage message;
@@ -181,7 +180,7 @@ TYPED_TEST(IpcInterface_test, CreateAgainAndEmptyWorks)
     ASSERT_TRUE(client.send(newMessage));
 
     server.emplace(anotherGoodName);
-    ASSERT_TRUE(server->openIpcChannel(IpcChannelSide::SERVER));
+    ASSERT_TRUE(server->openIpcChannel(PosixIpcChannelSide::SERVER));
 
     Duration timeout = 100_ms;
     ASSERT_FALSE(server->timedReceive(timeout, receivedMessage));
@@ -197,7 +196,7 @@ TYPED_TEST(IpcInterface_test, ClientWithoutServerCannotOpenIpcChannel)
     }
 
     typename TestFixture::SutType client(anotherGoodName);
-    ASSERT_FALSE(client.openIpcChannel(IpcChannelSide::CLIENT));
+    ASSERT_FALSE(client.openIpcChannel(PosixIpcChannelSide::CLIENT));
 }
 
 TYPED_TEST(IpcInterface_test, NotDestroyingServerLeadsToAChannelMappedToFile)
@@ -205,10 +204,10 @@ TYPED_TEST(IpcInterface_test, NotDestroyingServerLeadsToAChannelMappedToFile)
     ::testing::Test::RecordProperty("TEST_ID", "b3eef376-ae04-425b-aa5e-6b0ec4360253");
 
     typename TestFixture::SutType server(anotherGoodName);
-    EXPECT_TRUE(server.openIpcChannel(IpcChannelSide::SERVER));
+    EXPECT_TRUE(server.openIpcChannel(PosixIpcChannelSide::SERVER));
 
     typename TestFixture::SutType client(anotherGoodName);
-    EXPECT_TRUE(client.openIpcChannel(IpcChannelSide::CLIENT));
+    EXPECT_TRUE(client.openIpcChannel(PosixIpcChannelSide::CLIENT));
 
     EXPECT_TRUE(client.ipcChannelMapsToFile());
 }

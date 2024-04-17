@@ -17,11 +17,13 @@
 #include "iceoryx_posh/internal/popo/base_client.hpp"
 #include "iceoryx_posh/internal/popo/client_impl.hpp"
 #include "iceoryx_posh/internal/popo/untyped_client_impl.hpp"
+#include "iceoryx_posh/internal/posh_error_reporting.hpp"
 #include "iceoryx_posh/testing/mocks/posh_runtime_mock.hpp"
 #include "iox/optional.hpp"
 #include "mocks/client_mock.hpp"
 #include "mocks/trigger_handle_mock.hpp"
 
+#include "iceoryx_hoofs/testing/error_reporting/testing_support.hpp"
 #include "test.hpp"
 
 namespace
@@ -29,7 +31,6 @@ namespace
 using namespace ::testing;
 using namespace iox;
 using namespace iox::capro;
-using namespace iox::cxx;
 using namespace iox::mepoo;
 using namespace iox::popo;
 using namespace iox::runtime;
@@ -91,7 +92,8 @@ class BaseClient_test : public Test
         // the default ctor is used in the getMiddlewareClient call
         PortConfigInfo portInfo;
         MemoryManager memoryManager;
-        ClientPortData portData{sd, runtimeName, options, &memoryManager, portInfo.memoryInfo};
+        ClientPortData portData{
+            sd, runtimeName, roudi::DEFAULT_UNIQUE_ROUDI_ID, options, &memoryManager, portInfo.memoryInfo};
         EXPECT_CALL(*mockRuntime, getMiddlewareClient(sd, options, portInfo)).WillOnce(Return(&portData));
 
         sut.emplace(sd, options);
@@ -128,7 +130,7 @@ TYPED_TEST(BaseClient_test, GetUidCallsUnderlyingPort)
 {
     ::testing::Test::RecordProperty("TEST_ID", "4c1f401c-9ee2-40f9-8f97-2ae7dae594b3");
 
-    const UniquePortId uid;
+    const UniquePortId uid{roudi::DEFAULT_UNIQUE_ROUDI_ID};
     EXPECT_CALL(this->sut->port(), getUniqueID).WillOnce(Return(uid));
 
     EXPECT_THAT(this->sut->getUid(), Eq(uid));
@@ -251,21 +253,20 @@ TYPED_TEST(BaseClient_test, EnableStateCallsUnderlyingPortAndTriggerHandle)
 
         EXPECT_CALL(this->sut->port(), setConditionVariable(Ref(condVar), TRIGGER_ID)).Times(1);
 
-        bool errorDetected{false};
-        auto errorHandlerGuard = iox::ErrorHandlerMock::setTemporaryErrorHandler<
-            iox::PoshError>([&](const iox::PoshError error, const iox::ErrorLevel errorLevel) {
-            EXPECT_THAT(
-                error,
-                Eq(iox::PoshError::
-                       POPO__BASE_CLIENT_OVERRIDING_WITH_STATE_SINCE_HAS_RESPONSE_OR_RESPONSE_RECEIVED_ALREADY_ATTACHED));
-            EXPECT_THAT(errorLevel, Eq(iox::ErrorLevel::MODERATE));
-            errorDetected = true;
-        });
-
         this->sut->enableState(std::move(triggerHandle), ClientState::HAS_RESPONSE);
 
         EXPECT_THAT(this->sut->m_trigger.triggerId, Eq(TRIGGER_ID));
-        EXPECT_THAT(errorDetected, Eq(clientAttachedIndicator));
+
+        if (clientAttachedIndicator)
+        {
+            IOX_TESTING_EXPECT_ERROR(
+                iox::PoshError::
+                    POPO__BASE_CLIENT_OVERRIDING_WITH_STATE_SINCE_HAS_RESPONSE_OR_RESPONSE_RECEIVED_ALREADY_ATTACHED);
+        }
+        else
+        {
+            IOX_TESTING_EXPECT_OK();
+        }
     }
 }
 
@@ -312,21 +313,20 @@ TYPED_TEST(BaseClient_test, EnableEventCallsUnderlyingPortAndTriggerHandle)
 
         EXPECT_CALL(this->sut->port(), setConditionVariable(Ref(condVar), TRIGGER_ID)).Times(1);
 
-        bool errorDetected{false};
-        auto errorHandlerGuard = iox::ErrorHandlerMock::setTemporaryErrorHandler<
-            iox::PoshError>([&](const iox::PoshError error, const iox::ErrorLevel errorLevel) {
-            EXPECT_THAT(
-                error,
-                Eq(iox::PoshError::
-                       POPO__BASE_CLIENT_OVERRIDING_WITH_EVENT_SINCE_HAS_RESPONSE_OR_RESPONSE_RECEIVED_ALREADY_ATTACHED));
-            EXPECT_THAT(errorLevel, Eq(iox::ErrorLevel::MODERATE));
-            errorDetected = true;
-        });
-
         this->sut->enableEvent(std::move(triggerHandle), ClientEvent::RESPONSE_RECEIVED);
 
         EXPECT_THAT(this->sut->m_trigger.triggerId, Eq(TRIGGER_ID));
-        EXPECT_THAT(errorDetected, Eq(clientAttachedIndicator));
+
+        if (clientAttachedIndicator)
+        {
+            IOX_TESTING_EXPECT_ERROR(
+                iox::PoshError::
+                    POPO__BASE_CLIENT_OVERRIDING_WITH_EVENT_SINCE_HAS_RESPONSE_OR_RESPONSE_RECEIVED_ALREADY_ATTACHED);
+        }
+        else
+        {
+            IOX_TESTING_EXPECT_OK();
+        }
     }
 }
 

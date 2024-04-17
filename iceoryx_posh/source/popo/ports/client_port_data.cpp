@@ -21,20 +21,21 @@ namespace iox
 {
 namespace popo
 {
-cxx::VariantQueueTypes getResponseQueueType(const QueueFullPolicy policy) noexcept
+VariantQueueTypes getResponseQueueType(const QueueFullPolicy policy) noexcept
 {
-    return policy == QueueFullPolicy::DISCARD_OLDEST_DATA ? cxx::VariantQueueTypes::SoFi_MultiProducerSingleConsumer
-                                                          : cxx::VariantQueueTypes::FiFo_MultiProducerSingleConsumer;
+    return policy == QueueFullPolicy::DISCARD_OLDEST_DATA ? VariantQueueTypes::SoFi_MultiProducerSingleConsumer
+                                                          : VariantQueueTypes::FiFo_MultiProducerSingleConsumer;
 }
 
 constexpr uint64_t ClientPortData::HISTORY_CAPACITY_ZERO;
 
 ClientPortData::ClientPortData(const capro::ServiceDescription& serviceDescription,
                                const RuntimeName_t& runtimeName,
+                               const roudi::UniqueRouDiId uniqueRouDiId,
                                const ClientOptions& clientOptions,
                                mepoo::MemoryManager* const memoryManager,
                                const mepoo::MemoryInfo& memoryInfo) noexcept
-    : BasePortData(serviceDescription, runtimeName, clientOptions.nodeName)
+    : BasePortData(serviceDescription, runtimeName, uniqueRouDiId)
     , m_chunkSenderData(memoryManager, clientOptions.serverTooSlowPolicy, HISTORY_CAPACITY_ZERO, memoryInfo)
     , m_chunkReceiverData(getResponseQueueType(clientOptions.responseQueueFullPolicy),
                           clientOptions.responseQueueFullPolicy,

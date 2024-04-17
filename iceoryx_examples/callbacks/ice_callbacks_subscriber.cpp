@@ -14,12 +14,12 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "iceoryx_dust/posix_wrapper/signal_watcher.hpp"
 #include "iceoryx_posh/popo/listener.hpp"
 #include "iceoryx_posh/popo/subscriber.hpp"
 #include "iceoryx_posh/popo/user_trigger.hpp"
 #include "iceoryx_posh/runtime/posh_runtime.hpp"
 #include "iox/optional.hpp"
+#include "iox/signal_watcher.hpp"
 #include "topic_data.hpp"
 
 #include <chrono>
@@ -42,7 +42,8 @@ void heartbeatCallback(iox::popo::UserTrigger*)
 void onSampleReceivedCallback(iox::popo::Subscriber<CounterTopic>* subscriber)
 {
     //! [get data]
-    subscriber->take().and_then([subscriber](auto& sample) {
+    // take all samples from the subscriber queue
+    while (subscriber->take().and_then([subscriber](auto& sample) {
         auto instanceString = subscriber->getServiceDescription().getInstanceIDString();
 
         // store the sample in the corresponding cache
@@ -56,7 +57,9 @@ void onSampleReceivedCallback(iox::popo::Subscriber<CounterTopic>* subscriber)
         }
 
         std::cout << "received: " << sample->counter << std::endl;
-    });
+    }))
+    {
+    }
     //! [get data]
 
     //! [process data]
@@ -91,7 +94,7 @@ int main()
     // send a heartbeat every 4 seconds
     //! [create heartbeat]
     std::thread heartbeatThread([&] {
-        while (!iox::posix::hasTerminationRequested())
+        while (!iox::hasTerminationRequested())
         {
             heartbeat.trigger();
             std::this_thread::sleep_for(std::chrono::seconds(4));
@@ -131,7 +134,7 @@ int main()
 
     // wait until someone presses CTRL+C
     //! [wait for sigterm]
-    iox::posix::waitForTerminationRequest();
+    iox::waitForTerminationRequest();
     //! [wait for sigterm]
 
     // optional detachEvent, but not required.

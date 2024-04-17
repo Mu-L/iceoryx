@@ -16,16 +16,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-# define macro for option configuration
-macro(configure_option)
-    set(ONE_VALUE_ARGS NAME DEFAULT_VALUE)
-    cmake_parse_arguments(CONFIGURE_OPTION "" "${ONE_VALUE_ARGS}" "" ${ARGN})
-
-    if(NOT ${CONFIGURE_OPTION_NAME})
-        set(${CONFIGURE_OPTION_NAME} ${CONFIGURE_OPTION_DEFAULT_VALUE})
-    endif()
-    message(STATUS "[i] ${CONFIGURE_OPTION_NAME}: " ${${CONFIGURE_OPTION_NAME}})
-endmacro()
+include(IceoryxConfigureOptionMacro)
 
 # configure deployment
 message(STATUS "[i] <<<<<<<<<<<<< Start iceoryx_posh configuration: >>>>>>>>>>>>>")
@@ -39,12 +30,14 @@ if(NOT IOX_COMMUNICATION_POLICY)
     set(IOX_COMMUNICATION_POLICY ManyToManyPolicy)
 endif()
 
-# Refer to iceoryx_hoofs/include/iceoryx_hoofs/internal/posix_wrapper/ipc_channel.hpp
+# Refer to iceoryx_hoofs/posix/ipc/include/iox/posix_ipc_channel.hpp
 # for info why this is needed.
 if(APPLE)
-    set(IOX_MAX_RUNTIME_NAME_LENGTH_DEFAULT 98)
+    set(IOX_MAX_NODE_NAME_LENGTH_DEFAULT 85)
+    set(IOX_MAX_RUNTIME_NAME_LENGTH_DEFAULT 85)
 else()
-    set(IOX_MAX_RUNTIME_NAME_LENGTH_DEFAULT 100)
+    set(IOX_MAX_NODE_NAME_LENGTH_DEFAULT 87)
+    set(IOX_MAX_RUNTIME_NAME_LENGTH_DEFAULT 87)
 endif()
 
 configure_option(
@@ -79,13 +72,16 @@ configure_option(
     NAME IOX_MAX_PROCESS_NUMBER
     DEFAULT_VALUE 300
 )
+# NOTE: this is currently only used in the experimental API and corresponds to 'IOX_MAX_PROCESS_NUMBER'
+# due to a limitation in the 'PointerRepository'
 configure_option(
     NAME IOX_MAX_NODE_NUMBER
-    DEFAULT_VALUE 1000
+    DEFAULT_VALUE 300
 )
+# NOTE: this is currently set to 1 due to the limitation  in the 'PointerRepository'
 configure_option(
     NAME IOX_MAX_NODE_PER_PROCESS
-    DEFAULT_VALUE 50
+    DEFAULT_VALUE 1
 )
 configure_option(
     NAME IOX_MAX_SHM_SEGMENTS
@@ -101,7 +97,7 @@ configure_option(
 )
 configure_option(
     NAME IOX_MAX_NODE_NAME_LENGTH
-    DEFAULT_VALUE 100
+    DEFAULT_VALUE ${IOX_MAX_NODE_NAME_LENGTH_DEFAULT}
 )
 configure_option(
     NAME IOX_MAX_ID_STRING_LENGTH
@@ -127,14 +123,21 @@ configure_option(
     NAME IOX_MAX_CLIENTS_PER_SERVER
     DEFAULT_VALUE 256
 )
+configure_option(
+    NAME IOX_MAX_NUMBER_OF_NOTIFIERS
+    DEFAULT_VALUE 256
+)
+configure_option(
+    NAME IOX_MAX_REQUESTS_PROCESSED_SIMULTANEOUSLY
+    DEFAULT_VALUE 4
+)
 
-# note: don't change IOX_INTERNAL_MAX_NUMBER_OF_NOTIFIERS value because it could break the C-Binding
-#configure_option(
-#    NAME IOX_MAX_NUMBER_OF_NOTIFIERS
-#    DEFAULT_VALUE 256
-#)
-set(IOX_INTERNAL_MAX_NUMBER_OF_NOTIFIERS 256)
-
+if(IOX_EXPERIMENTAL_POSH)
+     set(IOX_EXPERIMENTAL_POSH_FLAG true)
+else()
+     set(IOX_EXPERIMENTAL_POSH_FLAG false)
+endif()
+message(STATUS "[i] IOX_EXPERIMENTAL_POSH_FLAG: ${IOX_EXPERIMENTAL_POSH_FLAG}")
 
 message(STATUS "[i] <<<<<<<<<<<<<< End iceoryx_posh configuration: >>>>>>>>>>>>>>")
 

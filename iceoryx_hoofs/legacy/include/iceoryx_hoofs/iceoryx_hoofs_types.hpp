@@ -17,16 +17,21 @@
 #ifndef IOX_HOOFS_ICEORYX_HOOFS_TYPES_HPP
 #define IOX_HOOFS_ICEORYX_HOOFS_TYPES_HPP
 
+#include "iox/detail/deprecation_marker.hpp"
 #include "iox/iceoryx_hoofs_types.hpp"
+
+#include <cstddef>
+
+IOX_DEPRECATED_HEADER_SINCE(3, "Please include 'iox/iceoryx_hoofs_types.hpp' instead.")
+
+// clang-format off
 
 namespace iox
 {
-/// @todo iox-#1593 Deprecate include
-/// [[deprecated("Deprecated in 3.0, removed in 4.0, please include 'iox/iceoryx_hoofs_types.hpp' instead")]]
-namespace cxx
+namespace IOX_DEPRECATED_SINCE(3, "Please use the 'iox' namespace directly and the corresponding header.") cxx
 {
-/// @deprecated use 'iox::byte' instead of 'iox::cxx::byte_t'
-using byte_t = byte;
+/// @deprecated use 'std::byte' instead of 'iox::cxx::byte_t'
+using byte_t IOX_DEPRECATED_SINCE(3, "Please use 'std::byte' instead.") = std::byte;
 
 } // namespace cxx
 namespace log
@@ -35,5 +40,7 @@ namespace log
 using iox::log::LogLevel;
 } // namespace log
 } // namespace iox
+
+// clang-format on
 
 #endif // IOX_HOOFS_ICEORYX_HOOFS_TYPES_HPP

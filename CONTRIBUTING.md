@@ -60,6 +60,20 @@ Please make sure you have:
 
 **NOTE:** For support while developing you can use little helper scripts, see [git-hooks](./tools/git-hooks/Readme.md).
 
+## Experimental features
+
+Large features or features where the API is not yet clear can be implemented with the `IOX_EXPERIMENTAL_POSH` feature flag. Those
+features shall not be available in the installed headers when the `IOX_EXPERIMENTAL_POSH` feature flag was not set during compilation.
+
+If possible, this should be achieved by not installing the headers of the experimental feature instead of `ifdefs`. With this
+approach, the experimental features can still be build on all targets on the CI without specifying the `IOX_EXPERIMENTAL_POSH` feature
+flag and does not require new CI targets.
+
+The experimental feature must be in an `experimental` namespace and the header includes path must also contain the name `experimental`.
+
+The experimental features should not be mentioned in a prominent place so as not to encourage users to use them since there
+will be no community support and they might be removed at a later stage.
+
 ## Branching strategy
 
 `master`
@@ -104,7 +118,7 @@ codebase follows these rules, things are work in progress.
     without heap)
 2) **No exceptions are allowed**, all function and methods need to have `noexcept` in their signature
 3) **No undefined behavior**, zero-cost abstract is not feasible in high safety environments
-4) **Use C++14**
+4) **Use C++17**
 5) **[Rule of Five](https://en.cppreference.com/w/cpp/language/rule_of_three)**, if there is a non-default
     destructor needed, the rule of five has to be applied
 6) **Keep the [STL](https://en.wikipedia.org/wiki/Standard_Template_Library) dependencies to a minimum**,
@@ -112,7 +126,7 @@ codebase follows these rules, things are work in progress.
     which are not compatible with the STL (e.g. `iox::cxx::vector::emplace_back()` does return a bool); see
     [section](CONTRIBUTING.md#external-dependencies) below
 7) **Always use `iox::log::Logger`**, instead of `printf()`
-8) **Always use `iox::ErrorHandler` or `iox::cxx::Expects`/`iox::cxx::Ensures`**, when an error occurs that cannot or
+8) **Always use `iox::ErrorHandler` or `IOX_EXPECTS`/`IOX_ENSURES`**, when an error occurs that cannot or
     shall not be propagated via an `iox::expected`
 9) **Not more than two-level nested namespaces**, three-level nested namespace can be used sparsely
 
@@ -196,6 +210,10 @@ necessary, do the following:
 
 1. Contact the maintainers beforehand by opening an issue to discuss the necessity
 1. If accepted, add the new header to `tools/scripts/used-headers.txt` for the CI to pass
+
+### Eliminating code duplication
+
+1. In some cases, the code in the constructor and assignment operations may be largely duplicated. It is encouraged to move this duplicated code into a separate function (e.g., `copy_and_move_impl`) for better reuse. Additionally, the `MoveAndCopyHelper` in `iceoryx/design` (refer to [MoveAndCopyHelper](./doc/design/move_and_copy_helper.md)) offers some functionalities that make this process easier.
 
 ## Folder structure
 

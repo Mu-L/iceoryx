@@ -18,12 +18,15 @@
 #define IOX_HOOFS_CXX_ATTRIBUTES_HPP
 
 #include "iox/attributes.hpp"
+#include "iox/detail/deprecation_marker.hpp"
+
+IOX_DEPRECATED_HEADER_SINCE(3, "Please include 'iox/attributes.hpp' instead.")
+
+// clang-format off
 
 namespace iox
 {
-/// @todo iox-#1593 Deprecate include
-/// [[deprecated("Deprecated in 3.0, removed in 4.0, please include 'iox/attributes.hpp' instead")]]
-namespace cxx
+namespace IOX_DEPRECATED_SINCE(3, "Please use the 'iox' namespace directly and the corresponding header.") cxx
 {
 namespace internal
 {
@@ -32,5 +35,16 @@ using iox::internal::IOX_DISCARD_RESULT_IMPL;
 } // namespace internal
 } // namespace cxx
 } // namespace iox
+
+// clang-format on
+
+/// @deprecated use '[[nodiscard]]' instead of 'IOX_NO_DISCARD'
+#define IOX_NO_DISCARD [[nodiscard, IOX_NO_DISCARD_is_deprecated_use__nodiscard__attribute]]
+
+/// @deprecated use '[[fallthrough]]' instead of 'IOX_FALLTHROUGH'
+#define IOX_FALLTHROUGH [[fallthrough, IOX_FALLTHROUGH_is_deprecated_use__fallthrough__attribute]]
+
+/// @deprecated use '[[maybe_unused]]' instead of 'IOX_MAYBE_UNUSED'
+#define IOX_MAYBE_UNUSED [[maybe_unused, IOX_MAYBE_UNUSED_is_deprecated_use__maybe_unused__attribute]]
 
 #endif

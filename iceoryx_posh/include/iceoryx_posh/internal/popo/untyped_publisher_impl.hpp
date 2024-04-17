@@ -33,11 +33,13 @@ class UntypedPublisherImpl : public BasePublisherType
   public:
     explicit UntypedPublisherImpl(const capro::ServiceDescription& service,
                                   const PublisherOptions& publisherOptions = PublisherOptions());
+
+    virtual ~UntypedPublisherImpl() = default;
+
     UntypedPublisherImpl(const UntypedPublisherImpl& other) = delete;
     UntypedPublisherImpl& operator=(const UntypedPublisherImpl&) = delete;
-    UntypedPublisherImpl(UntypedPublisherImpl&& rhs) = delete;
-    UntypedPublisherImpl& operator=(UntypedPublisherImpl&& rhs) = delete;
-    virtual ~UntypedPublisherImpl() = default;
+    UntypedPublisherImpl(UntypedPublisherImpl&& rhs) noexcept = delete;
+    UntypedPublisherImpl& operator=(UntypedPublisherImpl&& rhs) noexcept = delete;
 
     ///
     /// @brief Get a chunk from loaned shared memory.
@@ -48,7 +50,7 @@ class UntypedPublisherImpl : public BasePublisherType
     /// @note An AllocationError occurs if no chunk is available in the shared memory.
     ///
     expected<void*, AllocationError>
-    loan(const uint32_t userPayloadSize,
+    loan(const uint64_t userPayloadSize,
          const uint32_t userPayloadAlignment = iox::CHUNK_DEFAULT_USER_PAYLOAD_ALIGNMENT,
          const uint32_t userHeaderSize = iox::CHUNK_NO_USER_HEADER_SIZE,
          const uint32_t userHeaderAlignment = iox::CHUNK_NO_USER_HEADER_ALIGNMENT) noexcept;
@@ -70,7 +72,10 @@ class UntypedPublisherImpl : public BasePublisherType
     void release(void* const userPayload) noexcept;
 
   protected:
+    using PortType = typename BasePublisherType::PortType;
     using BasePublisherType::port;
+
+    UntypedPublisherImpl(PortType&& port) noexcept;
 };
 
 } // namespace popo

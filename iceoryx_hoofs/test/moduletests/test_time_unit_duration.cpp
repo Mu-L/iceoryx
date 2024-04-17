@@ -15,10 +15,10 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "iceoryx_hoofs/posix_wrapper/posix_call.hpp"
 #include "iceoryx_hoofs/testing/mocks/logger_mock.hpp"
 #include "iceoryx_hoofs/testing/testing_logger.hpp"
 #include "iox/duration.hpp"
+#include "iox/posix_call.hpp"
 #include "test.hpp"
 #include <ctime>
 #include <iostream>
@@ -1080,13 +1080,13 @@ TEST(Duration_test, ConvertTimespecWithMonotonicReference)
     constexpr int64_t NANOSECONDS{66};
 
     struct timespec referenceTimeForMonotonicEpoch = {};
-    ASSERT_FALSE((iox::posix::posixCall(clock_gettime)(CLOCK_MONOTONIC, &referenceTimeForMonotonicEpoch)
+    ASSERT_FALSE((IOX_POSIX_CALL(iox_clock_gettime)(CLOCK_MONOTONIC, &referenceTimeForMonotonicEpoch)
                       .failureReturnValue(-1)
                       .evaluate()
                       .has_error()));
 
     struct timespec referenceTimeForUnixEpoch = {};
-    ASSERT_FALSE((iox::posix::posixCall(clock_gettime)(CLOCK_REALTIME, &referenceTimeForUnixEpoch)
+    ASSERT_FALSE((IOX_POSIX_CALL(iox_clock_gettime)(CLOCK_REALTIME, &referenceTimeForUnixEpoch)
                       .failureReturnValue(-1)
                       .evaluate()
                       .has_error()));
@@ -1390,10 +1390,10 @@ TEST(Duration_test, AddDurationDoesNotChangeOriginalObject)
     constexpr Duration EXPECTED_DURATION{13_s + 42_ns};
 
     auto sut1 = EXPECTED_DURATION;
-    const auto result1 IOX_MAYBE_UNUSED = sut1 + 15_s;
+    const auto result1 [[maybe_unused]] = sut1 + 15_s;
 
     auto sut2 = EXPECTED_DURATION;
-    const auto result2 IOX_MAYBE_UNUSED = 15_s + sut1;
+    const auto result2 [[maybe_unused]] = 15_s + sut1;
 
     EXPECT_THAT(sut1, Eq(EXPECTED_DURATION));
     EXPECT_THAT(sut2, Eq(EXPECTED_DURATION));
@@ -1592,10 +1592,10 @@ TEST(Duration_test, SubtractDurationDoesNotChangeOriginalObject)
     constexpr Duration EXPECTED_DURATION{13_s + 42_ns};
 
     auto sut1 = EXPECTED_DURATION;
-    const auto result1 IOX_MAYBE_UNUSED = sut1 - 5_s;
+    const auto result1 [[maybe_unused]] = sut1 - 5_s;
 
     auto sut2 = EXPECTED_DURATION;
-    const auto result2 IOX_MAYBE_UNUSED = 35_s + sut1;
+    const auto result2 [[maybe_unused]] = 35_s + sut1;
 
     EXPECT_THAT(sut1, Eq(EXPECTED_DURATION));
     EXPECT_THAT(sut2, Eq(EXPECTED_DURATION));
@@ -1783,10 +1783,10 @@ TEST(Duration_test, MultiplyDurationDoesNotChangeOriginalObject)
     constexpr Duration EXPECTED_DURATION{13_s + 42_ns};
 
     auto sut1 = EXPECTED_DURATION;
-    auto result1 IOX_MAYBE_UNUSED = sut1 * 0;
+    auto result1 [[maybe_unused]] = sut1 * 0;
 
     auto sut2 = EXPECTED_DURATION;
-    auto result2 IOX_MAYBE_UNUSED = sut2 * 0;
+    auto result2 [[maybe_unused]] = sut2 * 0;
 
     EXPECT_THAT(sut1, Eq(EXPECTED_DURATION));
     EXPECT_THAT(sut2, Eq(EXPECTED_DURATION));

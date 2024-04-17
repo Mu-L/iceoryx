@@ -24,33 +24,49 @@ namespace roudi
 template <typename T, std::enable_if_t<std::is_same<T, iox::build::ManyToManyPolicy>::value>*>
 inline iox::popo::SubscriberPortData* PortPool::constructSubscriber(const capro::ServiceDescription& serviceDescription,
                                                                     const RuntimeName_t& runtimeName,
+                                                                    const roudi::UniqueRouDiId uniqueRouDiId,
                                                                     const popo::SubscriberOptions& subscriberOptions,
                                                                     const mepoo::MemoryInfo& memoryInfo) noexcept
 {
-    return m_portPoolData->m_subscriberPortMembers.insert(
+    auto port = getSubscriberPortDataList().emplace(
         serviceDescription,
         runtimeName,
+        uniqueRouDiId,
         (subscriberOptions.queueFullPolicy == popo::QueueFullPolicy::DISCARD_OLDEST_DATA)
-            ? cxx::VariantQueueTypes::SoFi_MultiProducerSingleConsumer
-            : cxx::VariantQueueTypes::FiFo_MultiProducerSingleConsumer,
+            ? popo::VariantQueueTypes::SoFi_MultiProducerSingleConsumer
+            : popo::VariantQueueTypes::FiFo_MultiProducerSingleConsumer,
         subscriberOptions,
         memoryInfo);
+    if (port == getSubscriberPortDataList().end())
+    {
+        return nullptr;
+    }
+
+    return port.to_ptr();
 }
 
 template <typename T, std::enable_if_t<std::is_same<T, iox::build::OneToManyPolicy>::value>*>
 inline iox::popo::SubscriberPortData* PortPool::constructSubscriber(const capro::ServiceDescription& serviceDescription,
                                                                     const RuntimeName_t& runtimeName,
+                                                                    const roudi::UniqueRouDiId uniqueRouDiId,
                                                                     const popo::SubscriberOptions& subscriberOptions,
                                                                     const mepoo::MemoryInfo& memoryInfo) noexcept
 {
-    return m_portPoolData->m_subscriberPortMembers.insert(
+    auto port = getSubscriberPortDataList().emplace(
         serviceDescription,
         runtimeName,
+        uniqueRouDiId,
         (subscriberOptions.queueFullPolicy == popo::QueueFullPolicy::DISCARD_OLDEST_DATA)
-            ? cxx::VariantQueueTypes::SoFi_SingleProducerSingleConsumer
-            : cxx::VariantQueueTypes::FiFo_SingleProducerSingleConsumer,
+            ? popo::VariantQueueTypes::SoFi_SingleProducerSingleConsumer
+            : popo::VariantQueueTypes::FiFo_SingleProducerSingleConsumer,
         subscriberOptions,
         memoryInfo);
+    if (port == getSubscriberPortDataList().end())
+    {
+        return nullptr;
+    }
+
+    return port.to_ptr();
 }
 } // namespace roudi
 } // namespace iox

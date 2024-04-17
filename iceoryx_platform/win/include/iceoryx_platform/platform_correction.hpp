@@ -26,11 +26,14 @@
 
 #include <cstring>
 
+#if defined(_MSC_VER)
+
 #ifndef __PRETTY_FUNCTION__
 #define __PRETTY_FUNCTION__ __FUNCSIG__
 #endif
 
 #pragma pointers_to_members(full_generality)
+#endif
 
 #undef CreateMutex
 #undef max
@@ -42,7 +45,3 @@
 #undef OPEN_EXISTING
 #undef IGNORE
 #undef OPTIONAL
-
-/// @todo iox-#1616 required by posix but defined in libc header string.h
-///      move it into the upcoming libc layer in platform
-#define strerror_r(errnum, buf, buflen) strerror_s(buf, buflen, errnum)

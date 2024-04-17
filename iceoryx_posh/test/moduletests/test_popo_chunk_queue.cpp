@@ -23,9 +23,11 @@
 #include "iceoryx_posh/internal/popo/building_blocks/chunk_queue_pusher.hpp"
 #include "iceoryx_posh/internal/popo/building_blocks/condition_listener.hpp"
 #include "iceoryx_posh/internal/popo/building_blocks/locking_policy.hpp"
+#include "iceoryx_posh/internal/posh_error_reporting.hpp"
 #include "iceoryx_posh/mepoo/chunk_header.hpp"
 #include "iox/bump_allocator.hpp"
 
+#include "iceoryx_hoofs/testing/error_reporting/testing_support.hpp"
 #include "test.hpp"
 
 namespace
@@ -71,18 +73,18 @@ class ChunkQueue_testBase
     static constexpr uint32_t RESIZED_CAPACITY{5U};
 };
 
-template <typename PolicyType, iox::cxx::VariantQueueTypes VariantQueueType>
+template <typename PolicyType, iox::popo::VariantQueueTypes VariantQueueType>
 struct TypeDefinitions
 {
     using PolicyType_t = PolicyType;
-    static const iox::cxx::VariantQueueTypes variantQueueType{VariantQueueType};
+    static const iox::popo::VariantQueueTypes variantQueueType{VariantQueueType};
 };
 
 using ChunkQueueSubjects =
-    Types<TypeDefinitions<ThreadSafePolicy, iox::cxx::VariantQueueTypes::FiFo_SingleProducerSingleConsumer>,
-          TypeDefinitions<ThreadSafePolicy, iox::cxx::VariantQueueTypes::SoFi_SingleProducerSingleConsumer>,
-          TypeDefinitions<SingleThreadedPolicy, iox::cxx::VariantQueueTypes::FiFo_SingleProducerSingleConsumer>,
-          TypeDefinitions<SingleThreadedPolicy, iox::cxx::VariantQueueTypes::SoFi_SingleProducerSingleConsumer>>;
+    Types<TypeDefinitions<ThreadSafePolicy, iox::popo::VariantQueueTypes::FiFo_SingleProducerSingleConsumer>,
+          TypeDefinitions<ThreadSafePolicy, iox::popo::VariantQueueTypes::SoFi_SingleProducerSingleConsumer>,
+          TypeDefinitions<SingleThreadedPolicy, iox::popo::VariantQueueTypes::FiFo_SingleProducerSingleConsumer>,
+          TypeDefinitions<SingleThreadedPolicy, iox::popo::VariantQueueTypes::SoFi_SingleProducerSingleConsumer>>;
 
 TYPED_TEST_SUITE(ChunkQueue_test, ChunkQueueSubjects, );
 
@@ -95,7 +97,7 @@ class ChunkQueue_test : public Test, public ChunkQueue_testBase
 
     using ChunkQueueData_t = ChunkQueueData<iox::DefaultChunkQueueConfig, typename TestTypes::PolicyType_t>;
 
-    iox::cxx::VariantQueueTypes m_variantQueueType{TestTypes::variantQueueType};
+    iox::popo::VariantQueueTypes m_variantQueueType{TestTypes::variantQueueType};
     ChunkQueueData_t m_chunkData{QueueFullPolicy::DISCARD_OLDEST_DATA, m_variantQueueType};
     ChunkQueuePopper<ChunkQueueData_t> m_popper{&m_chunkData};
     ChunkQueuePusher<ChunkQueueData_t> m_pusher{&m_chunkData};
@@ -121,12 +123,12 @@ TYPED_TEST(ChunkQueue_test, UniqueIdIsMonotonicallyIncreasing)
     ChunkQueueData_t m_chunkData1{QueueFullPolicy::DISCARD_OLDEST_DATA, this->m_variantQueueType};
     {
         ChunkQueueData_t m_chunkData2{QueueFullPolicy::DISCARD_OLDEST_DATA,
-                                      iox::cxx::VariantQueueTypes::FiFo_SingleProducerSingleConsumer};
+                                      iox::popo::VariantQueueTypes::FiFo_SingleProducerSingleConsumer};
         EXPECT_THAT(static_cast<UniqueId::value_type>(m_chunkData2.m_uniqueId),
                     static_cast<UniqueId::value_type>(m_chunkData1.m_uniqueId) + 1);
     }
     ChunkQueueData_t m_chunkData3{QueueFullPolicy::DISCARD_OLDEST_DATA,
-                                  iox::cxx::VariantQueueTypes::SoFi_SingleProducerSingleConsumer};
+                                  iox::popo::VariantQueueTypes::SoFi_SingleProducerSingleConsumer};
     EXPECT_THAT(static_cast<UniqueId::value_type>(m_chunkData3.m_uniqueId),
                 static_cast<UniqueId::value_type>(m_chunkData1.m_uniqueId) + 2);
 }
@@ -138,7 +140,7 @@ TYPED_TEST(ChunkQueue_test, PushOneChunk)
     this->m_pusher.push(chunk);
     EXPECT_THAT(this->m_popper.empty(), Eq(false));
     /// @note size not implemented on FIFO
-    if (this->m_variantQueueType != iox::cxx::VariantQueueTypes::FiFo_SingleProducerSingleConsumer)
+    if (this->m_variantQueueType != iox::popo::VariantQueueTypes::FiFo_SingleProducerSingleConsumer)
     {
         EXPECT_THAT(this->m_popper.size(), Eq(1U));
     }
@@ -153,7 +155,7 @@ TYPED_TEST(ChunkQueue_test, PopOneChunk)
     EXPECT_THAT(this->m_popper.tryPop().has_value(), Eq(true));
     EXPECT_THAT(this->m_popper.empty(), Eq(true));
     /// @note size not implemented on FIFO
-    if (this->m_variantQueueType != iox::cxx::VariantQueueTypes::FiFo_SingleProducerSingleConsumer)
+    if (this->m_variantQueueType != iox::popo::VariantQueueTypes::FiFo_SingleProducerSingleConsumer)
     {
         EXPECT_THAT(this->m_popper.size(), Eq(0U));
     }
@@ -191,15 +193,8 @@ TYPED_TEST(ChunkQueue_test, PopChunkWithIncompatibleChunkHeaderCallsErrorHandler
 
     this->m_pusher.push(chunk);
 
-    iox::PoshError receivedError{iox::PoshError::NO_ERROR};
-    auto errorHandlerGuard = iox::ErrorHandlerMock::setTemporaryErrorHandler<iox::PoshError>(
-        [&](const iox::PoshError error, const iox::ErrorLevel errorLevel) {
-            receivedError = error;
-            EXPECT_EQ(errorLevel, iox::ErrorLevel::SEVERE);
-        });
-
     EXPECT_FALSE(this->m_popper.tryPop().has_value());
-    EXPECT_EQ(receivedError, iox::PoshError::POPO__CHUNK_QUEUE_POPPER_CHUNK_WITH_INCOMPATIBLE_CHUNK_HEADER_VERSION);
+    IOX_TESTING_EXPECT_ERROR(iox::PoshError::POPO__CHUNK_QUEUE_POPPER_CHUNK_WITH_INCOMPATIBLE_CHUNK_HEADER_VERSION);
 }
 
 TYPED_TEST(ChunkQueue_test, ClearOnEmpty)
@@ -279,7 +274,7 @@ class ChunkQueueFiFo_test : public Test, public ChunkQueue_testBase
     using ChunkQueueData_t = ChunkQueueData<iox::DefaultChunkQueueConfig, PolicyType>;
 
     ChunkQueueData_t m_chunkData{QueueFullPolicy::DISCARD_OLDEST_DATA,
-                                 iox::cxx::VariantQueueTypes::FiFo_SingleProducerSingleConsumer};
+                                 iox::popo::VariantQueueTypes::FiFo_SingleProducerSingleConsumer};
     ChunkQueuePopper<ChunkQueueData_t> m_popper{&m_chunkData};
     ChunkQueuePusher<ChunkQueueData_t> m_pusher{&m_chunkData};
 };
@@ -343,7 +338,7 @@ class ChunkQueueSoFi_test : public Test, public ChunkQueue_testBase
     using ChunkQueueData_t = ChunkQueueData<iox::DefaultChunkQueueConfig, PolicyType>;
 
     ChunkQueueData_t m_chunkData{QueueFullPolicy::DISCARD_OLDEST_DATA,
-                                 iox::cxx::VariantQueueTypes::SoFi_SingleProducerSingleConsumer};
+                                 iox::popo::VariantQueueTypes::SoFi_SingleProducerSingleConsumer};
     ChunkQueuePopper<ChunkQueueData_t> m_popper{&m_chunkData};
     ChunkQueuePusher<ChunkQueueData_t> m_pusher{&m_chunkData};
 };

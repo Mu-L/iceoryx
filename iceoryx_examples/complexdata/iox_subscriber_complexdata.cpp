@@ -16,9 +16,9 @@
 
 #include "topic_data.hpp"
 
-#include "iceoryx_dust/posix_wrapper/signal_watcher.hpp"
 #include "iceoryx_posh/popo/subscriber.hpp"
 #include "iceoryx_posh/runtime/posh_runtime.hpp"
+#include "iox/signal_watcher.hpp"
 #include "iox/string.hpp"
 
 constexpr char APP_NAME[] = "iox-cpp-subscriber-complexdata";
@@ -32,7 +32,7 @@ int main()
     iox::popo::Subscriber<ComplexDataType> subscriber({"Group", "Instance", "ComplexDataTopic"});
 
     // run until interrupted by Ctrl-C
-    while (!iox::posix::hasTerminationRequested())
+    while (!iox::hasTerminationRequested())
     {
         subscriber.take()
             .and_then([](auto& sample) {
@@ -100,7 +100,7 @@ int main()
                     case 1:
                         s << separator << *i.template get_at_index<1>();
                         break;
-                    case INVALID_VARIANT_INDEX:
+                    case iox::INVALID_VARIANT_INDEX:
                         s << separator << "variant does not contain a type";
                         break;
                     default:

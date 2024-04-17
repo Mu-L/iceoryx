@@ -1,6 +1,7 @@
 // Copyright (c) 2019 - 2020 by Robert Bosch GmbH. All rights reserved.
 // Copyright (c) 2020 - 2022 by Apex.AI Inc. All rights reserved.
 // Copyright (c) 2022 by NXP. All rights reserved.
+// Copyright (c) 2024 by ekxide IO GmbH. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,14 +19,16 @@
 #ifndef IOX_POSH_ICEORYX_POSH_TYPES_HPP
 #define IOX_POSH_ICEORYX_POSH_TYPES_HPP
 
-#include "iceoryx_hoofs/cxx/variant_queue.hpp"
-#include "iceoryx_hoofs/internal/posix_wrapper/ipc_channel.hpp"
 #include "iceoryx_platform/platform_settings.hpp"
 #include "iceoryx_posh/iceoryx_posh_deployment.hpp"
+#include "iox/detail/convert.hpp"
 #include "iox/duration.hpp"
 #include "iox/function.hpp"
+#include "iox/into.hpp"
 #include "iox/log/logstream.hpp"
+#include "iox/newtype.hpp"
 #include "iox/optional.hpp"
+#include "iox/posix_ipc_channel.hpp"
 #include "iox/string.hpp"
 #include "iox/vector.hpp"
 
@@ -93,7 +96,7 @@ constexpr uint32_t MAX_RESPONSE_QUEUE_CAPACITY = build::IOX_MAX_RESPONSE_QUEUE_C
 // Server
 constexpr uint32_t MAX_SERVERS = build::IOX_MAX_PUBLISHERS;
 constexpr uint32_t MAX_CLIENTS_PER_SERVER = build::IOX_MAX_CLIENTS_PER_SERVER;
-constexpr uint32_t MAX_REQUESTS_PROCESSED_SIMULTANEOUSLY = 4U;
+constexpr uint32_t MAX_REQUESTS_PROCESSED_SIMULTANEOUSLY = build::IOX_MAX_REQUESTS_PROCESSED_SIMULTANEOUSLY;
 constexpr uint32_t MAX_RESPONSES_ALLOCATED_SIMULTANEOUSLY = MAX_REQUESTS_PROCESSED_SIMULTANEOUSLY;
 constexpr uint32_t MAX_REQUEST_QUEUE_CAPACITY = build::IOX_MAX_REQUEST_QUEUE_CAPACITY;
 // Waitset
@@ -139,15 +142,22 @@ constexpr const char SERVICE_DISCOVERY_SERVICE_NAME[] = "ServiceDiscovery";
 constexpr const char SERVICE_DISCOVERY_INSTANCE_NAME[] = "RouDi_ID";
 constexpr const char SERVICE_DISCOVERY_EVENT_NAME[] = "ServiceRegistry";
 
+// Resource prefix
+constexpr uint32_t RESOURCE_PREFIX_LENGTH = 13; // 'iox1_' + MAX_UINT16_SIZE + '_' + optional 'x_'
+
 // Nodes
+constexpr uint32_t MAX_NODE_NAME_LENGTH = build::IOX_MAX_NODE_NAME_LENGTH;
+static_assert(MAX_NODE_NAME_LENGTH + RESOURCE_PREFIX_LENGTH <= MAX_IPC_CHANNEL_NAME_LENGTH,
+              "Invalid configuration of maximum node name length");
+
 constexpr uint32_t MAX_NODE_NUMBER = build::IOX_MAX_NODE_NUMBER;
 constexpr uint32_t MAX_NODE_PER_PROCESS = build::IOX_MAX_NODE_PER_PROCESS;
 
 constexpr uint32_t MAX_RUNTIME_NAME_LENGTH = build::IOX_MAX_RUNTIME_NAME_LENGTH;
-
-static_assert(MAX_RUNTIME_NAME_LENGTH <= MAX_IPC_CHANNEL_NAME_LENGTH,
+static_assert(MAX_RUNTIME_NAME_LENGTH + RESOURCE_PREFIX_LENGTH <= MAX_IPC_CHANNEL_NAME_LENGTH,
               "Invalid configuration of maximum runtime name length");
-static_assert(MAX_PROCESS_NUMBER * MAX_NODE_PER_PROCESS > MAX_NODE_NUMBER, "Invalid configuration for nodes");
+
+static_assert(MAX_PROCESS_NUMBER * MAX_NODE_PER_PROCESS >= MAX_NODE_NUMBER, "Invalid configuration for nodes");
 
 enum class SubscribeState : uint32_t
 {
@@ -197,9 +207,47 @@ struct DefaultChunkQueueConfig
     static constexpr uint64_t MAX_QUEUE_CAPACITY = MAX_SUBSCRIBER_QUEUE_CAPACITY;
 };
 
+// Domain ID
+IOX_NEW_TYPE(DomainId,
+             uint16_t,
+             newtype::ConstructByValueCopy,
+             newtype::MoveConstructable,
+             newtype::CopyConstructable,
+             newtype::MoveAssignable,
+             newtype::CopyAssignable,
+             newtype::Comparable,
+             newtype::Convertable,
+             newtype::Sortable);
+
+constexpr DomainId DEFAULT_DOMAIN_ID{0};
+
+constexpr const char ICEORYX_RESOURCE_PREFIX[] = "iox1";
+
+/// @brief The resource type is used to customize the resource prefix by adding an 'i' or 'u' depending whether the
+/// resource is defined by iceoryx, e.g. the roudi IPC channel, or by the user, e.g. the runtime name. This shall
+/// prevent the system from being affected by users defining resource names which are intended to be used by iceoryx.
+enum class ResourceType
+{
+    ICEORYX_DEFINED,
+    USER_DEFINED,
+};
+
+using ResourcePrefix_t = string<RESOURCE_PREFIX_LENGTH>;
+/// @brief Returns the prefix string used for resources
+/// @param[in] domainId to use for the prefix string
+/// @param[in] resourceType to specify whether the resource is defined by iceoryx internals or by user input
+ResourcePrefix_t iceoryxResourcePrefix(const DomainId domainId, const ResourceType resourceType) noexcept;
+
+namespace experimental
+{
+/// @brief Should only be used in internal iceoryx tests to enable experimental posh features in tests without setting
+/// the compiler flag
+bool hasExperimentalPoshFeaturesEnabled(const optional<bool>& newValue = nullopt) noexcept;
+} // namespace experimental
+
 // alias for string
 using RuntimeName_t = string<MAX_RUNTIME_NAME_LENGTH>;
-using NodeName_t = string<build::IOX_MAX_NODE_NAME_LENGTH>;
+using NodeName_t = string<MAX_NODE_NAME_LENGTH>;
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
 using ShmName_t = string<128>;
 
@@ -215,14 +263,26 @@ namespace roudi
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
 using ConfigFilePathString_t = string<1024>;
 
-constexpr const char ROUDI_LOCK_NAME[] = "iox-unique-roudi";
+constexpr const char ROUDI_LOCK_NAME[] = "unique_roudi";
 constexpr const char IPC_CHANNEL_ROUDI_NAME[] = "roudi";
 
 /// shared memory segment for the iceoryx management data
-constexpr const char SHM_NAME[] = "iceoryx_mgmt";
+constexpr const char SHM_NAME[] = "management";
+
+// Unique RouDi ID
+IOX_NEW_TYPE(UniqueRouDiId,
+             uint16_t,
+             newtype::ConstructByValueCopy,
+             newtype::MoveConstructable,
+             newtype::CopyConstructable,
+             newtype::MoveAssignable,
+             newtype::CopyAssignable,
+             newtype::Comparable,
+             newtype::Convertable,
+             newtype::Sortable);
 
 // this is used by the UniquePortId
-constexpr uint16_t DEFAULT_UNIQUE_ROUDI_ID{0U};
+constexpr UniqueRouDiId DEFAULT_UNIQUE_ROUDI_ID{0U};
 
 // Timeout
 using namespace units::duration_literals;
@@ -249,13 +309,6 @@ iox::log::LogStream& operator<<(iox::log::LogStream& logstream, const Monitoring
 namespace mepoo
 {
 using SequenceNumber_t = std::uint64_t;
-using BaseClock_t = std::chrono::steady_clock;
-
-// use signed integer for duration;
-// there is a bug in gcc 4.8 which leads to a wrong calculated time
-// when sleep_until() is used with a timepoint in the past
-using DurationNs_t = std::chrono::duration<std::int64_t, std::nano>;
-using TimePointNs_t = std::chrono::time_point<BaseClock_t, DurationNs_t>;
 } // namespace mepoo
 
 namespace runtime

@@ -16,10 +16,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "iceoryx_posh/gateway/toml_gateway_config_parser.hpp"
-#include "iceoryx_dust/cxx/file_reader.hpp"
-#include "iceoryx_dust/cxx/std_string_support.hpp"
+#include "iox/file_reader.hpp"
 #include "iox/into.hpp"
 #include "iox/logging.hpp"
+#include "iox/std_string_support.hpp"
 
 #include <cpptoml.h>
 #include <limits> // workaround for missing include in cpptoml.h
@@ -33,26 +33,26 @@ iox::config::TomlGatewayConfigParser::parse(const roudi::ConfigFilePathString_t&
     // Set defaults if no path provided.
     if (path.size() == 0)
     {
-        IOX_LOG(WARN) << "Invalid file path provided. Falling back to built-in config.";
+        IOX_LOG(WARN, "Invalid file path provided. Falling back to built-in config.");
         config.setDefaults();
         return iox::ok(config);
     }
 
     /// @todo iox-#1718 Replace with C++17 std::filesystem::exists()
-    iox::cxx::FileReader configFile(into<std::string>(path), "", cxx::FileReader::ErrorMode::Ignore);
+    iox::FileReader configFile(into<std::string>(path), "", FileReader::ErrorMode::Ignore);
     if (!configFile.isOpen())
     {
-        IOX_LOG(WARN) << "Gateway config file not found at: '" << path << "'. Falling back to built-in config.";
+        IOX_LOG(WARN, "Gateway config file not found at: '" << path << "'. Falling back to built-in config.");
         config.setDefaults();
         return iox::ok(config);
     }
 
-    IOX_LOG(INFO) << "Using gateway config at: " << path;
+    IOX_LOG(INFO, "Using gateway config at: " << path);
 
     std::ifstream fileStream{path.c_str()};
     if (!fileStream.is_open())
     {
-        IOX_LOG(ERROR) << "Could not open config file from path '" << path << "'";
+        IOX_LOG(ERROR, "Could not open config file from path '" << path << "'");
         return iox::err(iox::config::TomlGatewayConfigParseError::FILE_OPEN_FAILED);
     }
 
@@ -91,8 +91,9 @@ iox::config::TomlGatewayConfigParser::parse(std::istream& stream, GatewayConfig&
     {
         auto parserError = iox::config::TomlGatewayConfigParseError::EXCEPTION_IN_PARSER;
         auto errorStringIndex = static_cast<uint64_t>(parserError);
-        IOX_LOG(WARN) << iox::config::TOML_GATEWAY_CONFIG_FILE_PARSE_ERROR_STRINGS[errorStringIndex] << ": "
-                      << parserException.what();
+        IOX_LOG(WARN,
+                iox::config::TOML_GATEWAY_CONFIG_FILE_PARSE_ERROR_STRINGS[errorStringIndex] << ": "
+                                                                                            << parserException.what());
 
         return iox::err(parserError);
     }

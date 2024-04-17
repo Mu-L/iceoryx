@@ -29,6 +29,8 @@ set -e
 WORKSPACE=$(git rev-parse --show-toplevel)
 BUILD_DIR=$WORKSPACE/build
 NUM_JOBS=""
+NUM_JOBS_MIN=1
+NUM_JOBS_MAX=1024
 PACKAGE="OFF"
 CLEAN_BUILD=false
 NO_BUILD=false
@@ -45,12 +47,14 @@ ADDRESS_SANITIZER_FLAG="OFF"
 THREAD_SANITIZER_FLAG="OFF"
 ROUDI_ENV_FLAG="OFF"
 TEST_ADD_USER="OFF"
+TEST_HUGE_PAYLOAD="OFF"
 OUT_OF_TREE_FLAG="OFF"
 EXAMPLE_FLAG="OFF"
+EXPERIMENTAL_FLAG="OFF"
 BUILD_ALL_FLAG="OFF"
 BUILD_SHARED="OFF"
 TOML_FLAG="ON"
-COMPONENTS="iceoryx_posh iceoryx_hoofs iceoryx_introspection iceoryx_binding_c iceoryx_component"
+COMPONENTS="iceoryx_platform iceoryx_hoofs iceoryx_posh iceoryx_introspection iceoryx_binding_c iceoryx_component"
 TOOLCHAIN_FILE=""
 CMAKE_CXX_FLAGS=""
 
@@ -78,6 +82,15 @@ while (( "$#" )); do
             shift 2
         fi
         echo "$TEST_SCOPE"
+        ;;
+    -j|--jobs)
+        if (($2 < $NUM_JOBS_MIN || $2 > $NUM_JOBS_MAX)); then
+            echo "Invalid number of jobs: $2"
+            echo "Allowed range is $NUM_JOBS_MIN to $NUM_JOBS_MAX"
+            exit 1
+        fi
+        NUM_JOBS="$2"
+        shift 2
         ;;
     "clean")
         CLEAN_BUILD=true
@@ -113,6 +126,10 @@ while (( "$#" )); do
         "$WORKSPACE"/tools/scripts/add_test_users.sh check
         shift 1
         ;;
+    "test-huge-payload")
+        TEST_HUGE_PAYLOAD="ON"
+        shift 1
+        ;;
     "binding-c")
         echo " [i] Including C binding in build"
         BINDING_C_FLAG="ON"
@@ -145,6 +162,11 @@ while (( "$#" )); do
     "examples")
         echo " [i] Build iceoryx with all examples"
         EXAMPLE_FLAG="ON"
+        shift 1
+        ;;
+    "experimental")
+        echo " [i] Build experimental features"
+        EXPERIMENTAL_FLAG="ON"
         shift 1
         ;;
     "out-of-tree")
@@ -202,6 +224,7 @@ while (( "$#" )); do
         echo "    -b --build-dir        Specify a non-default build directory"
         echo "    -c --coverage         Build with gcov and generate a html/xml report."
         echo "                          Possible arguments: 'all', 'unit', 'integration', 'only-timing-tests'"
+        echo "    -j --jobs             Specify the number of build jobs. Number must be in the range of $NUM_JOBS_MIN to $NUM_JOBS_MAX"
         echo "    -t --toolchain-file   Specify an absolute path to a toolchain file for cross-compiling e.g. (-t $(pwd)/tools/qnx/qnx710.nto.toolchain.aarch64.cmake)"
         echo "Args:"
         echo "    binding-c             Build the iceoryx C-Binding"
@@ -249,7 +272,10 @@ echo " [i] Building in $BUILD_DIR"
 #====================================================================================================
 
 # set number of cores for building
-if [[ "$OSTYPE" == "linux-gnu"* ]] || [[ "$OSTYPE" == "cygwin" ]] || [[ "$OSTYPE" == "msys" ]]; then
+if [[ $NUM_JOBS -ne "" ]]; then
+    # don't change number of jobs if set by script argument
+    :
+elif [[ "$OSTYPE" == "linux-gnu"* ]] || [[ "$OSTYPE" == "cygwin" ]] || [[ "$OSTYPE" == "msys" ]]; then
     NUM_JOBS=$(nproc)
 elif [[ "$OSTYPE" == "darwin"* ]]; then
     NUM_JOBS=$(sysctl -n hw.ncpu)
@@ -288,6 +314,7 @@ if [ "$NO_BUILD" == false ]; then
           -DCOVERAGE=$COV_FLAG \
           -DROUDI_ENVIRONMENT=$ROUDI_ENV_FLAG \
           -DEXAMPLES=$EXAMPLE_FLAG \
+          -DIOX_EXPERIMENTAL_POSH=$EXPERIMENTAL_FLAG \
           -DTOML_CONFIG=$TOML_FLAG \
           -DBUILD_DOC=$BUILD_DOC \
           -DBINDING_C=$BINDING_C_FLAG \
@@ -296,6 +323,7 @@ if [ "$NO_BUILD" == false ]; then
           -DADDRESS_SANITIZER=$ADDRESS_SANITIZER_FLAG \
           -DTHREAD_SANITIZER=$THREAD_SANITIZER_FLAG \
           -DTEST_WITH_ADDITIONAL_USER=$TEST_ADD_USER $TOOLCHAIN_FILE \
+          -DTEST_WITH_HUGE_PAYLOAD=$TEST_HUGE_PAYLOAD \
           -DCMAKE_CXX_FLAGS=$CMAKE_CXX_FLAGS \
           "$WORKSPACE"/iceoryx_meta
 
@@ -322,13 +350,12 @@ if [ "$OUT_OF_TREE_FLAG" == "ON" ]; then
     rm -rf "$WORKSPACE"/build_out_of_tree
     cd "$WORKSPACE"
 
-    EXAMPLES=$(cd iceoryx_examples; find * -maxdepth 1 -type d)
+    EXAMPLES=$(cd iceoryx_examples; find * -maxdepth 0 -type d)
     # Exclude directories without CMake file from the out-of-tree build
     EXAMPLES=${EXAMPLES/iceensemble/""}
     EXAMPLES=${EXAMPLES/icecrystal/""}
     EXAMPLES=${EXAMPLES/icedocker/""}
-    EXAMPLES=${EXAMPLES/icediscovery\/src/""}
-    EXAMPLES=${EXAMPLES/icediscovery\/include/""}
+    EXAMPLES=${EXAMPLES/experimental/""}
     EXAMPLES=${EXAMPLES/small_memory/""}
     echo ">>>>>> Start Out-of-tree build <<<<<<"
     echo "${EXAMPLES}"
@@ -360,7 +387,8 @@ fi
 
 if [ $RUN_TEST == true ]; then
     echo " [i] Running all tests"
-    "$BUILD_DIR"/tools/run_tests.sh "$TEST_SCOPE"
+    cd "$BUILD_DIR"
+    tools/run_tests.sh "$TEST_SCOPE"
 fi
 
 for COMPONENT in $COMPONENTS; do

@@ -32,9 +32,9 @@
 #include "iox/optional.hpp"
 #include "iox/relative_pointer.hpp"
 
-#include "iceoryx_dust/posix_wrapper/message_queue.hpp"
-#include "iceoryx_dust/posix_wrapper/named_pipe.hpp"
-#include "iceoryx_hoofs/internal/posix_wrapper/unix_domain_socket.hpp"
+#include "iox/message_queue.hpp"
+#include "iox/named_pipe.hpp"
+#include "iox/unix_domain_socket.hpp"
 
 #include <cstdint>
 #include <cstdlib>
@@ -50,11 +50,11 @@ namespace iox
 namespace platform
 {
 #if defined(_WIN32)
-using IoxIpcChannelType = iox::posix::NamedPipe;
+using IoxIpcChannelType = iox::NamedPipe;
 #elif defined(__FREERTOS__)
-using IoxIpcChannelType = iox::posix::NamedPipe;
+using IoxIpcChannelType = iox::NamedPipe;
 #else
-using IoxIpcChannelType = iox::posix::UnixDomainSocket;
+using IoxIpcChannelType = iox::UnixDomainSocket;
 #endif
 } // namespace platform
 namespace runtime
@@ -77,9 +77,6 @@ enum class IpcMessageType : int32_t
     CREATE_INTERFACE_ACK,
     CREATE_CONDITION_VARIABLE,
     CREATE_CONDITION_VARIABLE_ACK,
-    CREATE_NODE,
-    CREATE_NODE_ACK,
-    KEEPALIVE,
     TERMINATION,
     TERMINATION_ACK,
     PREPARE_APP_TERMINATION,
@@ -121,6 +118,8 @@ enum class IpcMessageErrorType : int32_t
     CONDITION_VARIABLE_LIST_FULL,
     EVENT_VARIABLE_LIST_FULL,
     NODE_DATA_LIST_FULL,
+    SEGMENT_ID_CONVERSION_FAILURE,
+    OFFSET_CONVERSION_FAILURE,
     END,
 };
 
@@ -139,6 +138,14 @@ IpcMessageErrorType stringToIpcMessageErrorType(const char* str) noexcept;
 /// @brief Converts a message error type enumeration value into a string
 /// @param[in] msg enum value to convert
 std::string IpcMessageErrorTypeToString(const IpcMessageErrorType msg) noexcept;
+
+using InterfaceName_t = string<MAX_IPC_CHANNEL_NAME_LENGTH>;
+/// @brief Transforms an IPC channel name to a prefixed interface name
+/// @param[in] channelName the name of the channel without the 'iox1_#_' prefix
+/// @param[in] domainId to tie the interface to
+/// @param[in] resourceType to be used for the resource prefix
+/// @return the interface name with the 'iox1_#_' prefix
+InterfaceName_t ipcChannelNameToInterfaceName(RuntimeName_t channelName, DomainId domainId, ResourceType resourceType);
 
 class IpcInterfaceUser;
 class IpcInterfaceCreator;
@@ -208,7 +215,7 @@ class IpcInterface
     /// @brief Since there might be an outdated IPC channel due to an unclean temination
     ///        this function closes the IPC channel if it's existing.
     /// @param[in] name of the IPC channel to clean up
-    static void cleanupOutdatedIpcChannel(const RuntimeName_t& name) noexcept;
+    static void cleanupOutdatedIpcChannel(const InterfaceName_t& name) noexcept;
 
     friend class IpcInterfaceUser;
     friend class IpcInterfaceCreator;
@@ -230,13 +237,18 @@ class IpcInterface
     ///         IPC channel needs a unique string to be identified with.
     IpcInterface() = delete;
 
-    IpcInterface(const RuntimeName_t& runtimeName, const uint64_t maxMessages, const uint64_t messageSize) noexcept;
+    IpcInterface(const RuntimeName_t& runtimeName,
+                 const DomainId domainId,
+                 const ResourceType resourceType,
+                 const uint64_t maxMessages,
+                 const uint64_t messageSize) noexcept;
 
-    /// @brief delete copy and move ctor and assignment since they are not needed
+    IpcInterface(IpcInterface&&) noexcept = default;
+    IpcInterface& operator=(IpcInterface&&) noexcept = default;
+
+    /// @brief delete unneeded ctors and assignment operators
     IpcInterface(const IpcInterface&) = delete;
-    IpcInterface(IpcInterface&&) = delete;
     IpcInterface& operator=(const IpcInterface&) = delete;
-    IpcInterface& operator=(IpcInterface&&) = delete;
 
     /// @brief Set the content of answer from buffer.
     /// @param[in] buffer Raw message as char pointer
@@ -250,7 +262,7 @@ class IpcInterface
     /// keeps the IPC channel in the file system after the dTor is called
     /// @return Returns true if a IPC channel could be opened, otherwise
     ///             false.
-    bool openIpcChannel(const posix::IpcChannelSide channelSide) noexcept;
+    bool openIpcChannel(const PosixIpcChannelSide channelSide) noexcept;
 
     /// @brief If a IPC channel was moved then m_runtimeName was cleared
     ///         and this object gave up the control of that specific
@@ -262,10 +274,11 @@ class IpcInterface
     bool hasClosableIpcChannel() const noexcept;
 
   protected:
+    InterfaceName_t m_interfaceName;
     RuntimeName_t m_runtimeName;
     uint64_t m_maxMessageSize{0U};
     uint64_t m_maxMessages{0U};
-    iox::posix::IpcChannelSide m_channelSide{posix::IpcChannelSide::CLIENT};
+    PosixIpcChannelSide m_channelSide{PosixIpcChannelSide::CLIENT};
     optional<IpcChannelType> m_ipcChannel;
 };
 

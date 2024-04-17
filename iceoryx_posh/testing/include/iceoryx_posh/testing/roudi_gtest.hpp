@@ -18,6 +18,7 @@
 #define IOX_POSH_TESTUTILS_ROUDI_GTEST_HPP
 
 #include "iceoryx_posh/roudi_env/roudi_env.hpp"
+#include "iox/detail/deprecation_marker.hpp"
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -30,19 +31,18 @@ class RouDi_GTest : public iox::roudi_env::RouDiEnv, public ::testing::Test
 {
   public:
     RouDi_GTest() = default;
-    RouDi_GTest(const iox::RouDiConfig_t& roudiConfig) noexcept;
+    RouDi_GTest(const iox::IceoryxConfig& config) noexcept;
 
     /// @deprecated Deprecated in 3.0, removed in 4.0, please port to 'setDiscoveryLoopWaitToFinishTimeout'
-    [[deprecated("Deprecated in 3.0, removed in 4.0, please port to 'setDiscoveryLoopWaitToFinishTimeout'")]] void
-    SetInterOpWaitingTime(const std::chrono::milliseconds& v) noexcept;
+    IOX_DEPRECATED_SINCE(3, "Please port to 'setDiscoveryLoopWaitToFinishTimeout'")
+    void SetInterOpWaitingTime(const std::chrono::milliseconds& v) noexcept;
 
     /// @deprecated Deprecated in 3.0, removed in 4.0, please port to 'triggerDiscoveryLoopAndWaitToFinish'
-    [[deprecated("Deprecated in 3.0, removed in 4.0, please port to 'triggerDiscoveryLoopAndWaitToFinish'")]] void
-    InterOpWait() noexcept;
+    IOX_DEPRECATED_SINCE(3, "Please port to 'triggerDiscoveryLoopAndWaitToFinish'") void InterOpWait() noexcept;
 
     /// @deprecated Deprecated in 3.0, removed in 4.0, please port to 'cleanupAppResources'
-    [[deprecated("Deprecated in 3.0, removed in 4.0, please port to 'cleanupAppResources'")]] void
-    CleanupAppResources(const RuntimeName_t& name) noexcept;
+    IOX_DEPRECATED_SINCE(3, "Please port to 'cleanupAppResources'")
+    void CleanupAppResources(const RuntimeName_t& name) noexcept;
 };
 
 } // namespace testing

@@ -17,8 +17,6 @@
 #ifndef IOX_POSH_ROUDI_PORT_MANAGER_HPP
 #define IOX_POSH_ROUDI_PORT_MANAGER_HPP
 
-#include "iceoryx_hoofs/internal/posix_wrapper/shared_memory_object.hpp"
-#include "iceoryx_hoofs/posix_wrapper/posix_access_rights.hpp"
 #include "iceoryx_posh/iceoryx_posh_config.hpp"
 #include "iceoryx_posh/iceoryx_posh_types.hpp"
 #include "iceoryx_posh/internal/capro/capro_message.hpp"
@@ -36,12 +34,12 @@
 #include "iceoryx_posh/internal/roudi/introspection/port_introspection.hpp"
 #include "iceoryx_posh/internal/roudi/service_registry.hpp"
 #include "iceoryx_posh/internal/runtime/ipc_message.hpp"
-#include "iceoryx_posh/internal/runtime/node_data.hpp"
 #include "iceoryx_posh/mepoo/chunk_header.hpp"
 #include "iceoryx_posh/roudi/memory/roudi_memory_interface.hpp"
 #include "iceoryx_posh/roudi/port_pool.hpp"
 #include "iceoryx_posh/runtime/port_config_info.hpp"
 #include "iox/optional.hpp"
+#include "iox/posix_shared_memory_object.hpp"
 #include "iox/type_traits.hpp"
 
 #include <mutex>
@@ -112,11 +110,7 @@ class PortManager
                           const PortConfigInfo& portConfigInfo) noexcept;
 
     popo::InterfacePortData* acquireInterfacePortData(capro::Interfaces interface,
-                                                      const RuntimeName_t& runtimeName,
-                                                      const NodeName_t& nodeName = {""}) noexcept;
-
-    expected<runtime::NodeData*, PortPoolError> acquireNodeData(const RuntimeName_t& runtimeName,
-                                                                const NodeName_t& nodeName) noexcept;
+                                                      const RuntimeName_t& runtimeName) noexcept;
 
     expected<popo::ConditionVariableData*, PortPoolError>
     acquireConditionVariableData(const RuntimeName_t& runtimeName) noexcept;
@@ -161,8 +155,6 @@ class PortManager
 
     void handleInterfaces() noexcept;
 
-    void handleNodes() noexcept;
-
     void handleConditionVariables() noexcept;
 
     bool isCompatiblePubSub(const PublisherPortRouDiType& publisher,
@@ -193,8 +185,8 @@ class PortManager
     optional<RuntimeName_t> doesViolateCommunicationPolicy(const capro::ServiceDescription& service) noexcept;
 
     template <typename T, std::enable_if_t<std::is_same<T, iox::build::ManyToManyPolicy>::value>* = nullptr>
-    optional<RuntimeName_t>
-    doesViolateCommunicationPolicy(const capro::ServiceDescription& service IOX_MAYBE_UNUSED) noexcept;
+    optional<RuntimeName_t> doesViolateCommunicationPolicy(const capro::ServiceDescription& service
+                                                           [[maybe_unused]]) noexcept;
 
     bool isInternal(const capro::ServiceDescription& service) const noexcept;
 

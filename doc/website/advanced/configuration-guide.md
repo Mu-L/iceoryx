@@ -19,6 +19,7 @@ in the shared memory segment called `iceoryx_mgmt` when RouDi is started.
  | `IOX_MAX_SUBSCRIBERS` | Maximum number of subscribers in one iceoryx system |
  | `IOX_MAX_CHUNKS_HELD_PER_SUBSCRIBER_SIMULTANEOUSLY` | Maximum number of chunks a subscriber can take in parallel|
  | `IOX_MAX_INTERFACE_NUMBER` | Maximum number of interface ports which are used by gateways |
+ | `IOX_MAX_REQUESTS_PROCESSED_SIMULTANEOUSLY` | Maximum number of server can process request in parallel |
 
 Have a look at [IceoryxHoofsDeployment.cmake](../../../iceoryx_hoofs/cmake/IceoryxHoofsDeployment.cmake) and
 [IceoryxPoshDeployment.cmake](../../../iceoryx_posh/cmake/IceoryxPoshDeployment.cmake) for the default values of the constants.
@@ -187,25 +188,25 @@ is **not** linking against `iceoryx_posh_config` to ensure using the static conf
 ```cpp
 int main(int argc, char* argv[])
 {
-    iox::RouDiConfig_t roudiConfig;
+    iox::IceoryxConfig config;
 
     // create mempools
     iox::mepoo::MePooConfig mepooConfig;
     mepooConfig.addMemPool({128, 10000}); // payload in bytes, chunk count
     mepooConfig.addMemPool({265, 10000});
 
-    auto currentGroup = iox::posix::PosixGroup::getGroupOfCurrentProcess();
-    roudiConfig.m_sharedMemorySegments.push_back({currentGroup.getName(), currentGroup.getName(), mepooConfig});
+    auto currentGroup = iox::PosixGroup::getGroupOfCurrentProcess();
+    config.m_sharedMemorySegments.push_back({currentGroup.getName(), currentGroup.getName(), mepooConfig});
 
     // configure the chunk count for the introspection; each introspection topic gets this number of chunks
-    roudiConfig.introspectionChunkCount = 10;
+    config.introspectionChunkCount = 10;
 
     // configure the chunk count for the service discovery
-    roudiConfig.discoveryChunkCount = 10;
+    config.discoveryChunkCount = 10;
 
     // create a roudi instance
     iox::config::CmdLineParserConfigFileOption cmdLineParser;
-    IceOryxRouDiApp roudi(cmdLineParser.parse(argc, argv).expect("Valid CLI parameter"), roudiConfig);
+    IceOryxRouDiApp roudi(cmdLineParser.parse(argc, argv).expect("Valid CLI parameter"), config);
 
     // run roudi
     return roudi.run();

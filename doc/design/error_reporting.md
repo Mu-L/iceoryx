@@ -4,7 +4,7 @@ This is intended as a quick guide through the new error reporting API that will 
 
 ## Terminology
 
-### Module 
+### Module
 
 Self-contained part of code, e.g. hoofs or posh (or smaller scope). Each module must have a unique
 id and defines its errors.
@@ -29,7 +29,7 @@ The part of the custom implementation that defines the actions on reported error
 
 ### Error Code
 
-Some error code that is unique for each error module. It is recommended that it corresponds only 
+Some error code that is unique for each error module. It is recommended that it corresponds only
 to the type of error (e.g. out-of-memory error) and not the location.
 
 ### Error
@@ -39,9 +39,9 @@ module (by its id).
 
 ## How It Works
 
-The whole mechanism is very flexible and generic and relies on overloading and perfect forwarding 
-to relay information, e.g. errors. That means much of it can be optimized at compile time, 
-as the compiler has full knowledge about all the template definitions. 
+The whole mechanism is very flexible and generic and relies on overloading and perfect forwarding
+to relay information, e.g. errors. That means much of it can be optimized at compile time,
+as the compiler has full knowledge about all the template definitions.
 
 This holds up to the custom implementation, where it is possible to e.g. use runtime polymorphism or simply link
 against some library.
@@ -92,7 +92,7 @@ Assume the module defines some error codes
 
 ```cpp
 enum class Code
-{    
+{
     OutOfMemory = 73,
     OutOfBounds = 21
 };
@@ -137,7 +137,7 @@ IOX_REPORT_FATAL(Code::OutOfMemory);
 reports a fatal error that aborts execution after the custom implementation specific handler is invoked.
 
 Decoupling the error and its category is intentional, as e.g. an `OutOfMemory` error may not always be
-fatal. It may become fatal after it is propagated further along the call stack. 
+fatal. It may become fatal after it is propagated further along the call stack.
 Propagation is possible by various means, e.g. return codes, monadic types or even exceptions (that
 must be caught before reporting the error elsewhere again).
 
@@ -157,83 +157,62 @@ Fatal errors can be conditionally reported in a similar way.
 IOX_REPORT_FATAL_IF(x<0, Code::OutOfBounds);
 ```
 
-### Require That a Condition Holds
+### Enforce a Condition
 
-Similarly we can conditionally check whether a condition does hold and report a fatal error in
+Similarly we can conditionally enforce whether a condition does hold and report a fatal error in
 the case that it does not hold
 
 ```cpp
 int x;
 // ...
-IOX_REQUIRE(x>=0, Code::OutOfBounds);
+IOX_ENFORCE(x>=0, "enforce violation message");
 ```
 
 The condition is required to hold and this requirement is always checked.
 If the condition does not hold, panic is invoked and the execution stops.
 
 This should be used for conditions that may not hold on the correct path, e.g. for error cases.
-It should not be used for assumptions that have to be true in correct code 
-(use `IOX_ASSUME` or `IOX_PRECONDITION` for this).
+It should not be used for assumptions that have to be true in correct code
+(use `IOX_ASSERT` for this).
 
 Note that no condition can generally be enforced in the sense that it must be true and no checking is required.
 
-## Using the API to Check Contracts and Assumptions
+### Assert a Condition
 
-The following checks can be disabled and are intended to increase safety during incorrect
+The following check is disabled for release builds and is intended to increase safety during incorrect
 use, specifically detect incorrect use at runtime.
 
-This means they should only be used for checks that are not needed in correct code (i.e. defensive
+This means it should only be used for checks that are not needed in correct code (i.e. defensive
 programming).
 
-If these checks are disabled, there is no overhead in the code, i.e. no checking or reporting takes place.
-
-### Checking Preconditions
-
-A precondition check
+When check is disabled, there is no overhead in the code, i.e. no checking or reporting takes place.
 
 ```cpp
 int f(int x)
 {
-IOX_PRECONDITION(x>=0, "precondition violation message");
+    IOX_ASSERT(x>=0, "precondition violation message");
 
-// ...
-}
-```
-
-is used to verify assumptions **BEFORE** any logic in the function body is executed. Technically copy
-constructors may run before any condition can be checked, and there is also the possibility of
-reordering if the following code does not depend on the condition at all. 
-This is not a problem since any reordering is not allowed to affect the observable result. 
-Specifically it cannot affect the value of the precondition itself as this would change the
-observable behaviour.
-
-In case of violation, the violation and a (potentially empty) message are forwarded to the backend,
-panic is invoked and execution stops.
-
-The verification can be optionally disabled, and hence this also documents assumptions of the
-function itself.
-
-### Checking Assumptions
-
-Checking assumptions is similar to checking preconditions, but can happen anywhere in the code.
-
-```cpp
-int f(int x)
-{
     // some computation
     int y = g(x);
 
-    IOX_ASSUME(y>=0, "assumption violation message");
+    IOX_ASSERT(y>=0, "assumption violation message");
     // proceed assuming that y>=0 holds
 }
 ```
 
-These serve as documentation of assumptions that should hold at this point in the code before the
-next statement and can be used e.g. to check for out-of-bounds accesses. It can also be used to
-check postconditions.
+It can be used to verify preconditions before any logic in the function body is executed. Technically copy
+constructors may run before any condition can be checked, and there is also the possibility of
+reordering if the following code does not depend on the condition at all.
+This is not a problem since any reordering is not allowed to affect the observable result.
+Specifically it cannot affect the value of the precondition itself as this would change the
+observable behaviour.
 
-It should not be used at the start of a function body and instead replaced with a precondition check
-in this case.
+When used in the middle of a function it serves as documentation of assumptions that should hold at this
+point in the code before the next statement and can be used e.g. to check for out-of-bounds accesses. It can
+also be used to check postconditions.
+
+In case of violation, the violation and a (potentially empty) message are forwarded to the backend,
+panic is invoked and execution stops.
 
 ## Marking Unreachable Code
 
@@ -273,12 +252,12 @@ int handleColor(Color color) {
 }
 ```
 
-If `IOX_UNREACHABLE` is reached during execution, `panic` will be invoked and the program aborts. 
-Stating that specific code cannot be reached is a specific assumption and any violation 
-is considered a bug. Defensive programming, i.e. checking for conditions that are not supposed 
+If `IOX_UNREACHABLE` is reached during execution, `panic` will be invoked and the program aborts.
+Stating that specific code cannot be reached is a specific assumption and any violation
+is considered a bug. Defensive programming, i.e. checking for conditions that are not supposed
 to happen in a correct implementation, naturally creates unreachable code.
 
-Marking unreachable code like this has advantages for test coverage as the compiler and other tools 
+Marking unreachable code like this has advantages for test coverage as the compiler and other tools
 that rely on the compiler are aware of the `noreturn` guarantee of `IOX_UNREACHABLE`.
 As a consequence, branches with `IOX_UNREACHABLE` do not necessarily lead to a return statement.
 
@@ -314,7 +293,7 @@ expected<int, Code> algorithm(int x)
 }
 
 expected<int, E> identity() {
-    
+
     auto result = algorithm(73);
 
     if(result.has_error())
@@ -322,14 +301,14 @@ expected<int, E> identity() {
         // transform the error to E and propagate it
         return into<detail::err<E>>(result.error());
     }
-    
+
     // no error, return result
     return ok(*result);
 };
 ```
 
 This is similar to exception handling without the convenience of propagation.
-While this shows the use with `expected`, it can be used with any error return type, 
+While this shows the use with `expected`, it can be used with any error return type,
 for example the error code itself.
 
 A generalization allows to report more complex error types directly. This requires a corresponding
@@ -394,12 +373,12 @@ Alternatively the shorthand version can be used
 int algorithm(int x)
 {
     // require that the condition holds or raise a fatal error
-    IOX_REQUIRE(!errorCondition(x), SomeError);
+    IOX_REPORT_FATAL_IF(errorCondition(x), SomeError);
     return 42;
 }
 ```
 
-A generalization to error types other than codes is possible with a corresponding 
+A generalization to error types other than codes is possible with a corresponding
 backend implementation.
 
 ## Structure
@@ -409,13 +388,13 @@ backend implementation.
 The overall implementation concepts allow customization of the implementation level and provide
 a default implementation.
 
-Everything related to error reporting is located in the corresponding folder `error_reporting`.
+Everything related to error reporting is located in the corresponding folder `iceoryx_hoofs/reporting/error_reporting`.
 Since the main API is stateless, there is no need for classes. Everything directly in this folder
 (i.e. not in a subfolder) is not supposed to be changed.
 
 These are
 
-1. `error_reporting_macros.hpp`: the reporting macro API to be used
+1. `macros.hpp`: the reporting macro API to be used (don't include this directly but only via the specific module header, e.g. `iox/iceoryx_hoofs_error_reporting.hpp`)
 2. `configuration.hpp`: the default configuration (compile time flags)
 3. `error_forwarding.hpp`: forwarding to the custom implementation
 4. `error_kind.hpp`: mandatory error categories
@@ -424,32 +403,35 @@ These are
 7. `types.hpp`: auxiliary types
 8. `errors.hpp` : supported error types and related free functions
 
+Additionally there is the `assertions.hpp` in `iceoryx_hoofs/reporting` which contains the `IOX_PANIC`,
+`IOX_UNREACHABLE`, `IOX_ASSERT` and `IOX_ENFORCE` macros.
+
 All the files focus on singular aspects to allow fine-grained inclusion.
-All definitions have to reside in `iox::er`, which is considered a private (detail) namespace 
+All definitions have to reside in `iox::er`, which is considered a private (detail) namespace
 for everything related to error reporting. Since the API uses macros, it has no namespace itself.
 
 ### Custom Implementation
 
 A specific custom implementation may depend on any of them and has to implement an error reporting
-interface `error_reporting.hpp`. 
+interface `error_reporting.hpp`.
 
-Apart from implementing the error reporting interface, a custom implementation does not have to follow 
-a specific structure. However, it cannot depend on anything that intends to use the error 
-reporting itself. This especially is important if e.g. another communication mechanism such as a 
+Apart from implementing the error reporting interface, a custom implementation does not have to follow
+a specific structure. However, it cannot depend on anything that intends to use the error
+reporting itself. This especially is important if e.g. another communication mechanism such as a
 socket is used to report the errors. In this case, the socket implementation cannot use the error
 reporting as this would create a circular dependency.
 
-A custom implementation can override or extend some definitions and it is encouraged to use the same 
-file names as in the mandatory basics. For example `custom/error_kind.hpp` specifies additional 
+A custom implementation can override or extend some definitions and it is encouraged to use the same
+file names as in the mandatory basics. For example `custom/error_kind.hpp` specifies additional
 error kinds (apart from the mandatory fatal errors).
 
 The main purpose of the custom implementation is to define the actions to take for each error.
-Extension of existing definitions is possible by either changing the default implementation 
+Extension of existing definitions is possible by either changing the default implementation
 or providing an additional custom implementation and ensure that it is used by all modules.
 
 ### Default Implementation
 
-The default implementation in `custom/default` allows switching between a `DefaultHandler` 
+The default implementation in `custom/default` allows switching between a `DefaultHandler`
 and a `TestHandler` at runtime.
 The latter is used in testing to verify that an error occurred when it is expected.
 
@@ -460,8 +442,8 @@ The default implementation does not depend on any code that uses the error repor
 ### Testing
 
 All testing related definitions are located in `iceoryx_hoofs/testing/error_reporting`.
-These are the definition of `TestErrorHandler` in `testing_error_handler.hpp` and auxiliary 
-functions in `testing_support.hpp` to be used in tests to verify errors. 
+These are the definition of `TestingErrorHandler` in `testing_error_handler.hpp` and auxiliary
+functions in `testing_support.hpp` to be used in tests to verify errors.
 The latter can be extended as required.
 
 ### Modules
@@ -470,12 +452,12 @@ There must be a single point where all modules are defined to ensure they use un
 same custom implementation. Currently this happens in the `modules` folder but is work in progress
 to be completed during integration of error reporting.
 
-There is `modules/hoofs/error_reporting.hpp` that defines all the errors and custom implementation 
-used by `iceoryx_hoofs`. This header includes `error_reporting_macros.hpp` to make it easy to use 
-the custom error reporting in any iceoryx hoofs file by including `modules/hoofs/error_reporting.hpp`.
+There is `iceoryx_hoofs_error_reporting.hpp` that defines all the errors and custom implementation
+used by `iceoryx_hoofs`. This header includes `error_reporting/macros.hpp` to make it easy to use
+the custom error reporting in any iceoryx hoofs file by including `iceoryx_hoofs_error_reporting.hpp`.
 
 Replacing the previous error handling is supposed to happen by
 
-1. Adapting the error definitions for `iceoryx_hoofs` in `modules/hoofs/errors.hpp`
+1. Adapting the error definitions for `iceoryx_hoofs` in `iceoryx_hoofs_errors.hpp`
 2. Introducing a similar folder structure for `iceoryx_posh`
-3. Replacing occurrences of the previous error handler call (including `cxx::Expects`)
+3. Replacing occurrences of the previous error handler call (including `IOX_EXPECTS`)

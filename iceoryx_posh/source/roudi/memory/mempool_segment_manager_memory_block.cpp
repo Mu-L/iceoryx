@@ -17,6 +17,7 @@
 
 #include "iceoryx_posh/internal/roudi/memory/mempool_segment_manager_memory_block.hpp"
 
+#include "iox/assertions.hpp"
 #include "iox/bump_allocator.hpp"
 #include "iox/memory.hpp"
 
@@ -24,8 +25,10 @@ namespace iox
 {
 namespace roudi
 {
-MemPoolSegmentManagerMemoryBlock::MemPoolSegmentManagerMemoryBlock(const mepoo::SegmentConfig& segmentConfig) noexcept
+MemPoolSegmentManagerMemoryBlock::MemPoolSegmentManagerMemoryBlock(const mepoo::SegmentConfig& segmentConfig,
+                                                                   const DomainId domainId) noexcept
     : m_segmentConfig(segmentConfig)
+    , m_domainId(domainId)
 {
 }
 
@@ -50,10 +53,9 @@ uint64_t MemPoolSegmentManagerMemoryBlock::alignment() const noexcept
 void MemPoolSegmentManagerMemoryBlock::onMemoryAvailable(not_null<void*> memory) noexcept
 {
     BumpAllocator allocator(memory, size());
-    auto allocationResult = allocator.allocate(sizeof(mepoo::SegmentManager<>), alignof(mepoo::SegmentManager<>));
-    cxx::Expects(allocationResult.has_value());
-    auto* segmentManager = allocationResult.value();
-    m_segmentManager = new (segmentManager) mepoo::SegmentManager<>(m_segmentConfig, &allocator);
+    auto* segmentManager = allocator.allocate(sizeof(mepoo::SegmentManager<>), alignof(mepoo::SegmentManager<>))
+                               .expect("There should be enough memory for the 'SegmentManager'");
+    m_segmentManager = new (segmentManager) mepoo::SegmentManager<>(m_segmentConfig, m_domainId, &allocator);
 }
 
 void MemPoolSegmentManagerMemoryBlock::destroy() noexcept

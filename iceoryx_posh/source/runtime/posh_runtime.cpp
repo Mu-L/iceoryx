@@ -16,8 +16,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "iceoryx_posh/runtime/posh_runtime.hpp"
-#include "iceoryx_hoofs/internal/posix_wrapper/system_configuration.hpp"
+#include "iceoryx_posh/internal/posh_error_reporting.hpp"
 #include "iceoryx_posh/internal/runtime/posh_runtime_impl.hpp"
+#include "iox/detail/system_configuration.hpp"
 #include "iox/filesystem.hpp"
 #include "iox/logging.hpp"
 
@@ -70,8 +71,8 @@ void PoshRuntime::setRuntimeFactory(const factory_t& factory) noexcept
     }
     else
     {
-        IOX_LOG(FATAL) << "Cannot set runtime factory. Passed factory must not be empty!";
-        errorHandler(PoshError::POSH__RUNTIME_FACTORY_IS_NOT_SET);
+        IOX_LOG(FATAL, "Cannot set runtime factory. Passed factory must not be empty!");
+        IOX_REPORT_FATAL(PoshError::POSH__RUNTIME_FACTORY_IS_NOT_SET);
     }
 }
 
@@ -120,9 +121,9 @@ ScopeGuard PoshRuntime::getLifetimeParticipant() noexcept
 PoshRuntime::PoshRuntime(optional<const RuntimeName_t*> name) noexcept
     : m_appName(verifyInstanceName(name))
 {
-    if (internal::isCompiledOn32BitSystem())
+    if (detail::isCompiledOn32BitSystem())
     {
-        IOX_LOG(WARN) << "Running applications on 32-bit architectures is not supported! Use at your own risk!";
+        IOX_LOG(WARN, "Running applications on 32-bit architectures is not supported! Use at your own risk!");
     }
 }
 
@@ -130,14 +131,15 @@ const RuntimeName_t& PoshRuntime::verifyInstanceName(optional<const RuntimeName_
 {
     if (!name.has_value())
     {
-        IOX_LOG(FATAL) << "Cannot initialize runtime. Application name has not been specified!";
-        errorHandler(PoshError::POSH__RUNTIME_NO_NAME_PROVIDED, ErrorLevel::FATAL);
+        IOX_LOG(FATAL, "Cannot initialize runtime. Application name has not been specified!");
+        IOX_REPORT_FATAL(PoshError::POSH__RUNTIME_NO_NAME_PROVIDED);
     }
     else if (!isValidFileName(**name))
     {
-        IOX_LOG(FATAL) << "Cannot initialize runtime. The application name \"" << **name
-                       << "\" is not a valid platform-independent file name.";
-        errorHandler(PoshError::POSH__RUNTIME_NAME_NOT_VALID_FILE_NAME);
+        IOX_LOG(FATAL,
+                "Cannot initialize runtime. The application name \""
+                    << **name << "\" is not a valid platform-independent file name.");
+        IOX_REPORT_FATAL(PoshError::POSH__RUNTIME_NAME_NOT_VALID_FILE_NAME);
     }
 
     return *name.value();

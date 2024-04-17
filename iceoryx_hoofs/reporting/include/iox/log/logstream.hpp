@@ -1,6 +1,6 @@
 // Copyright (c) 2019 - 2021 by Robert Bosch GmbH. All rights reserved.
 // Copyright (c) 2021 - 2022 by Apex.AI Inc. All rights reserved.
-// Copyright (c) 2023 by Mathias Kraus <elboberido@m-hias.de>. All rights reserved.
+// Copyright (c) 2023 by ekxide IO GmbH. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -37,10 +37,24 @@ class LogHex
   public:
     friend class LogStream;
 
+    template <typename TT, typename>
+    friend constexpr LogHex<TT> hex(const TT) noexcept;
+    friend constexpr LogHex<const void* const> hex(const void* const) noexcept;
+
+    ~LogHex() = default;
+
+    LogHex(const LogHex&) = delete;
+    LogHex& operator=(const LogHex&) = delete;
+    LogHex& operator=(LogHex&&) noexcept = delete;
+
+  private:
     template <typename = std::enable_if_t<std::is_arithmetic<T>::value || std::is_pointer<T>::value>>
     explicit constexpr LogHex(const T value) noexcept;
 
-  private:
+    LogHex(LogHex&&) noexcept = default;
+
+    // NOLINTJUSTIFICATION intentionally used since the class does not need to be assignable and the data is not supposed to be changed
+    // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
     T m_value;
 };
 
@@ -49,14 +63,14 @@ class LogHex
 /// @param[in] value to be logged
 /// @return a helper struct which will be used by the LogStream
 // AXIVION Next Construct AutosarC++19_03-M17.0.3 : The function is in the iox::log namespace which prevents easy misuse
-template <typename T, typename = std::enable_if_t<std::is_arithmetic<T>::value>>
+template <typename T, typename = std::enable_if_t<std::is_arithmetic<T>::value && !std::is_same<T, bool>::value>>
 constexpr LogHex<T> hex(const T value) noexcept;
 
 /// @brief Log a pointer in hexadecimal format
 /// @param[in] ptr is the pointer to be logged
 /// @return a helper struct which will be used by the LogStream
 // AXIVION Next Construct AutosarC++19_03-M17.0.3 : The function is in the iox::log namespace which prevents easy misuse
-LogHex<const void* const> hex(const void* const ptr) noexcept;
+constexpr LogHex<const void* const> hex(const void* const ptr) noexcept;
 
 /// @brief Helper struct to log in octal format
 template <typename T>
@@ -65,22 +79,108 @@ class LogOct
   public:
     friend class LogStream;
 
-    template <typename = std::enable_if_t<std::is_integral<T>::value>>
-    inline explicit constexpr LogOct(const T value) noexcept;
+    template <typename TT, typename>
+    friend constexpr LogOct<TT> oct(const TT) noexcept;
+
+    ~LogOct() = default;
+
+    LogOct(const LogOct&) = delete;
+    LogOct& operator=(const LogOct&) = delete;
+    LogOct& operator=(LogOct&&) noexcept = delete;
 
   private:
+    template <typename = std::enable_if_t<std::is_integral<T>::value>>
+    explicit constexpr LogOct(const T value) noexcept;
+
+    LogOct(LogOct&&) noexcept = default;
+
     T m_value;
 };
 
 /// @brief Log a number in octal format
-/// @tparam[in] T the arithmetic data type of the value to log
+/// @tparam[in] T the integral data type of the value to log
 /// @param[in] value to be logged
 /// @return a helper struct which will be used by the LogStream
 // AXIVION Next Construct AutosarC++19_03-M17.0.3 : The function is in the iox::log namespace which prevents easy misuse
-template <typename T, typename = std::enable_if_t<std::is_integral<T>::value>>
-inline constexpr LogOct<T> oct(const T value) noexcept;
+template <typename T, typename = std::enable_if_t<std::is_integral<T>::value && !std::is_same<T, bool>::value>>
+constexpr LogOct<T> oct(const T value) noexcept;
 
-/// @todo iox-#1755 implement LogBin and LogRawBuffer
+/// @brief Helper struct to log in binary format
+template <typename T>
+class LogBin
+{
+  public:
+    friend class LogStream;
+
+    template <typename TT, typename>
+    friend constexpr LogBin<TT> bin(const TT) noexcept;
+
+    ~LogBin() = default;
+
+    LogBin(const LogBin&) = delete;
+    LogBin& operator=(const LogBin&) = delete;
+    LogBin& operator=(LogBin&&) noexcept = delete;
+
+  private:
+    template <typename = std::enable_if_t<std::is_integral<T>::value>>
+    explicit constexpr LogBin(const T value) noexcept;
+
+    LogBin(LogBin&&) noexcept = default;
+
+    T m_value;
+};
+
+/// @brief Log a number in binary format
+/// @tparam[in] T the integral data type of the value to log
+/// @param[in] value to be logged
+/// @return a helper struct which will be used by the LogStream
+// AXIVION Next Construct AutosarC++19_03-M17.0.3 : The function is in the iox::log namespace which prevents easy misuse
+template <typename T, typename = std::enable_if_t<std::is_integral<T>::value && !std::is_same<T, bool>::value>>
+constexpr LogBin<T> bin(const T value) noexcept;
+
+/// @brief Helper struct to log in raw bytes
+class LogRaw
+{
+  public:
+    friend class LogStream;
+
+    // for some reasons the default template argument SFINEA results in the error
+    // 'redeclaration of friend ... may not have default template arguments' on GCC but return type SFINEA seams to work
+    template <typename T>
+    friend constexpr typename std::enable_if<!std::is_pointer<T>::value, LogRaw>::type raw(const T&) noexcept;
+    friend constexpr LogRaw raw(const void* const, const uint64_t) noexcept;
+
+    ~LogRaw() = default;
+
+    LogRaw(const LogRaw&) = delete;
+    LogRaw& operator=(const LogRaw&) = delete;
+    LogRaw& operator=(LogRaw&&) noexcept = delete;
+
+  private:
+    explicit constexpr LogRaw(const void* const data, uint64_t size) noexcept;
+
+    LogRaw(LogRaw&&) noexcept = default;
+
+    // NOLINTJUSTIFICATION intentionally used since the class does not need to be assignable and the data is not supposed to be changed
+    // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
+    const void* const m_data;
+    uint64_t m_size;
+};
+
+/// @brief Log an object in raw bytes
+/// @tparam[in] T the data type of the object to log
+/// @param[in] object to be logged
+/// @return a helper struct which will be used by the LogStream
+// AXIVION Next Construct AutosarC++19_03-M17.0.3 : The function is in the iox::log namespace which prevents easy misuse
+template <typename T>
+constexpr typename std::enable_if<!std::is_pointer<T>::value, LogRaw>::type raw(const T& object) noexcept;
+
+/// @brief Log data in raw bytes
+/// @param[in] data pointer to the data to be logged
+/// @param[in] size of the data to be logged
+/// @return a helper struct which will be used by the LogStream
+// AXIVION Next Construct AutosarC++19_03-M17.0.3 : The function is in the iox::log namespace which prevents easy misuse
+constexpr LogRaw raw(const void* const data, const uint64_t size) noexcept;
 
 /// @brief This class provides the public interface to the logger and is used with the 'IOX_LOG' macro. In order to add
 /// support for custom data types 'operator<<' needs to be implement for the custom type.
@@ -116,19 +216,6 @@ class LogStream
     // '__LINE__' and '__FUNCTION__'; these are compiler intrinsic and cannot be changed to fixed width types in a
     // platform agnostic way
     LogStream(const char* file, const int line, const char* function, LogLevel logLevel) noexcept;
-
-    /// @brief Constructor for a LogStream object with the logger from iox::log::Logger::get
-    /// @note This is not intended for public use! Use the 'IOX_LOG' macro instead
-    /// @param[in] file the file of the log message. Please use the '__FILE__' compiler intrinsic
-    /// @param[in] line the line of the log message. Please use the '__LINE__' compiler intrinsic
-    /// @param[in] function the function of the log message. Please use the '__FUNCTION__' compiler intrinsic
-    /// @param[in] logLevel is the log level for the log message
-    /// @todo iox-#1755 temporary workaround due to lazy evaluation issues with Axivion; should be removed when the
-    /// lazy evaluation can be implemented in an way Axivion does not complain
-    // AXIVION Next Construct AutosarC++19_03-A3.9.1 : file, line and function are used in conjunction with '__FILE__',
-    // '__LINE__' and '__FUNCTION__'; these are compiler intrinsic and cannot be changed to fixed width types in a
-    // platform agnostic way
-    LogStream(const char* file, const int line, const char* function, LogLevel logLevel, bool doFlush) noexcept;
 
     virtual ~LogStream() noexcept;
 
@@ -238,41 +325,53 @@ class LogStream
 
     /// @brief Logging support for integral numbers in hexadecimal format
     /// @tparam[in] T is the integral data type of the value to log
-    /// @param[in] val is the number to log
+    /// @param[in] val is the value to log
     /// @return a reference to the LogStream instance
     template <typename T, typename std::enable_if_t<std::is_integral<T>::value, bool> = 0>
-    LogStream& operator<<(const LogHex<T> val) noexcept;
+    LogStream& operator<<(const LogHex<T>&& val) noexcept;
 
     /// @brief Logging support for floating point numbers in hexadecimal format
     /// @tparam[in] T is the floating point data type of the value to log
-    /// @param[in] val is the number to log
+    /// @param[in] val is the value to log
     /// @return a reference to the LogStream instance
     template <typename T, typename std::enable_if_t<std::is_floating_point<T>::value, bool> = 0>
-    LogStream& operator<<(const LogHex<T> val) noexcept;
+    LogStream& operator<<(const LogHex<T>&& val) noexcept;
 
     /// @brief Logging support for pointer in hexadecimal format
     /// @param[in] val is the pointer to log
     /// @return a reference to the LogStream instance
-    LogStream& operator<<(const LogHex<const void* const> val) noexcept;
+    LogStream& operator<<(const LogHex<const void* const>&& val) noexcept;
 
     /// @brief Logging support for integral numbers in octal format
     /// @tparam[in] T is the integral data type of the value to log
-    /// @param[in] val is the number to log
+    /// @param[in] val is the value to log
     /// @return a reference to the LogStream instance
     template <typename T, typename std::enable_if_t<std::is_integral<T>::value, bool> = 0>
-    LogStream& operator<<(const LogOct<T> val) noexcept;
+    LogStream& operator<<(const LogOct<T>&& val) noexcept;
+
+    /// @brief Logging support for integral numbers in binary format
+    /// @tparam[in] T is the integral data type of the value to log
+    /// @param[in] val is the value to log
+    /// @return a reference to the LogStream instance
+    template <typename T, typename std::enable_if_t<std::is_integral<T>::value, bool> = 0>
+    LogStream& operator<<(const LogBin<T>&& val) noexcept;
+
+    /// @brief Logging support for data in raw bytes
+    /// @param[in] val is the value to log
+    /// @return a reference to the LogStream instance
+    LogStream& operator<<(const LogRaw&& val) noexcept;
 
     /// @brief Logging support for callable. This gives access to the LogStream instance which e.g. can be used in a
     /// loop
     /// @tparam[in] Callable with a signature 'iox::log::LogStream&(iox::log::LogStream&)'
     /// @param[in] c is the callable which receives a LogStream object for the actual logging
     /// @code
-    /// IOX_LOG(INFO) << [] (auto& stream) -> auto& {
+    /// IOX_LOG(INFO, [] (auto& stream) -> auto& {
     ///     for(const auto& num: {13, 37, 42, 73}) {
     ///         stream << num << " ";
     ///     }
     ///     return stream;
-    /// };
+    /// });
     /// @endcode
     template <typename Callable, typename = std::enable_if_t<is_invocable_r<LogStream&, Callable, LogStream&>::value>>
     LogStream& operator<<(const Callable& c) noexcept;
@@ -293,37 +392,6 @@ class LogStream
     /// @todo iox-#1755 workaround due to deactivation of lazy evaluation
     bool m_doFlush{true};
 };
-
-namespace internal
-{
-/// @brief This is an internal helper struct to fully remove the logger from the compiled binary
-/// when 'IOX_MINIMAL_LOG_LEVEL == OFF'. It is not intended for direct usage.
-struct LogStreamOff
-{
-    // AXIVION Next Construct AutosarC++19_03-A3.9.1 : file, line and function are used in conjunction with '__FILE__',
-    // '__LINE__' and '__FUNCTION__'; these are compiler intrinsic and cannot be changed to fixed width types in a
-    // platform agnostic way
-    inline LogStreamOff(const char*, const int, const char*, LogLevel, bool) noexcept;
-    inline LogStreamOff& self() noexcept;
-
-    template <typename T>
-    inline LogStreamOff& operator<<(T&&) noexcept;
-};
-
-template <LogLevel level>
-struct LogStreamTypeSelector
-{
-    using type = iox::log::LogStream;
-};
-
-template <>
-struct LogStreamTypeSelector<iox::log::LogLevel::OFF>
-{
-    using type = iox::log::internal::LogStreamOff;
-};
-
-using SelectedLogStream = typename LogStreamTypeSelector<MINIMAL_LOG_LEVEL>::type;
-} // namespace internal
 
 } // namespace log
 } // namespace iox

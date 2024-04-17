@@ -16,7 +16,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "iceoryx_posh/internal/popo/building_blocks/condition_listener.hpp"
-#include "iceoryx_posh/error_handling/error_handling.hpp"
+#include "iceoryx_posh/internal/posh_error_reporting.hpp"
 
 namespace iox
 {
@@ -34,8 +34,8 @@ void ConditionListener::resetSemaphore() noexcept
     while (!hasFatalError
            && getMembers()
                   ->m_semaphore->tryWait()
-                  .or_else([&](posix::SemaphoreError) {
-                      errorHandler(PoshError::POPO__CONDITION_LISTENER_SEMAPHORE_CORRUPTED_IN_RESET, ErrorLevel::FATAL);
+                  .or_else([&](SemaphoreError) {
+                      IOX_REPORT_FATAL(PoshError::POPO__CONDITION_LISTENER_SEMAPHORE_CORRUPTED_IN_RESET);
                       hasFatalError = true;
                   })
                   .value())
@@ -46,9 +46,8 @@ void ConditionListener::resetSemaphore() noexcept
 void ConditionListener::destroy() volatile noexcept
 {
     m_toBeDestroyed.store(true, std::memory_order_relaxed);
-    getMembers()->m_semaphore->post().or_else([](auto) {
-        errorHandler(PoshError::POPO__CONDITION_LISTENER_SEMAPHORE_CORRUPTED_IN_DESTROY, ErrorLevel::FATAL);
-    });
+    getMembers()->m_semaphore->post().or_else(
+        [](auto) { IOX_REPORT_FATAL(PoshError::POPO__CONDITION_LISTENER_SEMAPHORE_CORRUPTED_IN_DESTROY); });
 }
 
 bool ConditionListener::wasNotified() const noexcept
@@ -61,7 +60,7 @@ ConditionListener::NotificationVector_t ConditionListener::wait() noexcept
     return waitImpl([this]() -> bool {
         if (this->getMembers()->m_semaphore->wait().has_error())
         {
-            errorHandler(PoshError::POPO__CONDITION_LISTENER_SEMAPHORE_CORRUPTED_IN_WAIT, ErrorLevel::FATAL);
+            IOX_REPORT_FATAL(PoshError::POPO__CONDITION_LISTENER_SEMAPHORE_CORRUPTED_IN_WAIT);
             return false;
         }
         return true;
@@ -73,13 +72,13 @@ ConditionListener::NotificationVector_t ConditionListener::timedWait(const units
     return waitImpl([this, timeToWait]() -> bool {
         if (this->getMembers()->m_semaphore->timedWait(timeToWait).has_error())
         {
-            errorHandler(PoshError::POPO__CONDITION_LISTENER_SEMAPHORE_CORRUPTED_IN_TIMED_WAIT, ErrorLevel::FATAL);
+            IOX_REPORT_FATAL(PoshError::POPO__CONDITION_LISTENER_SEMAPHORE_CORRUPTED_IN_TIMED_WAIT);
         }
         return false;
     });
 }
 
-ConditionListener::NotificationVector_t ConditionListener::waitImpl(const function_ref<bool()>& waitCall) noexcept
+ConditionListener::NotificationVector_t ConditionListener::waitImpl(const function_ref<bool()> waitCall) noexcept
 {
     using Type_t = iox::BestFittingType_t<iox::MAX_NUMBER_OF_EVENTS_PER_LISTENER>;
     NotificationVector_t activeNotifications;

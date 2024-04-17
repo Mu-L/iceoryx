@@ -63,8 +63,8 @@ class PublisherPort_test : public Test
     static constexpr size_t MEMORY_SIZE = 1024 * 1024;
     uint8_t m_memory[MEMORY_SIZE];
     static constexpr uint32_t NUM_CHUNKS_IN_POOL = 20;
-    static constexpr uint32_t SMALL_CHUNK = 128;
-    static constexpr uint32_t BIG_CHUNK = 256;
+    static constexpr uint64_t SMALL_CHUNK = 128;
+    static constexpr uint64_t BIG_CHUNK = 256;
 
     static constexpr uint32_t USER_PAYLOAD_ALIGNMENT = iox::CHUNK_DEFAULT_USER_PAYLOAD_ALIGNMENT;
     static constexpr uint32_t USER_HEADER_SIZE = iox::CHUNK_NO_USER_HEADER_SIZE;
@@ -80,31 +80,43 @@ class PublisherPort_test : public Test
     // publisher port w/o offer on create
     iox::popo::PublisherOptions m_noOfferOnCreatePublisherOptions{
         0U, iox::NodeName_t{""}, false, iox::popo::ConsumerTooSlowPolicy::DISCARD_OLDEST_DATA};
-    iox::popo::PublisherPortData m_publisherPortDataNoOfferOnCreate{
-        iox::capro::ServiceDescription("a", "b", "c"), "myApp", &m_memoryManager, m_noOfferOnCreatePublisherOptions};
+    iox::popo::PublisherPortData m_publisherPortDataNoOfferOnCreate{iox::capro::ServiceDescription("a", "b", "c"),
+                                                                    "myApp",
+                                                                    iox::roudi::DEFAULT_UNIQUE_ROUDI_ID,
+                                                                    &m_memoryManager,
+                                                                    m_noOfferOnCreatePublisherOptions};
     iox::popo::PublisherPortRouDi m_sutNoOfferOnCreateRouDiSide{&m_publisherPortDataNoOfferOnCreate};
     iox::popo::PublisherPortUser m_sutNoOfferOnCreateUserSide{&m_publisherPortDataNoOfferOnCreate};
 
     // publisher port that waits for subscriber when queue is full
     iox::popo::PublisherOptions m_waitForSubscriberPublisherOptions{
         0U, iox::NodeName_t{""}, false, iox::popo::ConsumerTooSlowPolicy::WAIT_FOR_CONSUMER};
-    iox::popo::PublisherPortData m_publisherPortDataWaitForSubscriber{
-        iox::capro::ServiceDescription("a", "b", "c"), "myApp", &m_memoryManager, m_waitForSubscriberPublisherOptions};
+    iox::popo::PublisherPortData m_publisherPortDataWaitForSubscriber{iox::capro::ServiceDescription("a", "b", "c"),
+                                                                      "myApp",
+                                                                      iox::roudi::DEFAULT_UNIQUE_ROUDI_ID,
+                                                                      &m_memoryManager,
+                                                                      m_waitForSubscriberPublisherOptions};
     iox::popo::PublisherPortRouDi m_sutWaitForSubscriberRouDiSide{&m_publisherPortDataWaitForSubscriber};
     iox::popo::PublisherPortUser m_sutWaitForSubscriberUserSide{&m_publisherPortDataWaitForSubscriber};
 
     // publisher port w/ history
     iox::popo::PublisherOptions m_withHistoryPublisherOptions{
         iox::MAX_PUBLISHER_HISTORY, iox::NodeName_t{""}, true, iox::popo::ConsumerTooSlowPolicy::DISCARD_OLDEST_DATA};
-    iox::popo::PublisherPortData m_publisherPortDataHistory{
-        iox::capro::ServiceDescription("x", "y", "z"), "myApp", &m_memoryManager, m_withHistoryPublisherOptions};
+    iox::popo::PublisherPortData m_publisherPortDataHistory{iox::capro::ServiceDescription("x", "y", "z"),
+                                                            "myApp",
+                                                            iox::roudi::DEFAULT_UNIQUE_ROUDI_ID,
+                                                            &m_memoryManager,
+                                                            m_withHistoryPublisherOptions};
     iox::popo::PublisherPortUser m_sutWithHistoryUserSide{&m_publisherPortDataHistory};
     iox::popo::PublisherPortRouDi m_sutWithHistoryRouDiSide{&m_publisherPortDataHistory};
 
     // publisher port w/ default options
     iox::popo::PublisherOptions m_withDefaultPublisherOptions{};
-    iox::popo::PublisherPortData m_publisherPortDataDefault{
-        iox::capro::ServiceDescription("x", "y", "z"), "myApp", &m_memoryManager, m_withDefaultPublisherOptions};
+    iox::popo::PublisherPortData m_publisherPortDataDefault{iox::capro::ServiceDescription("x", "y", "z"),
+                                                            "myApp",
+                                                            iox::roudi::DEFAULT_UNIQUE_ROUDI_ID,
+                                                            &m_memoryManager,
+                                                            m_withDefaultPublisherOptions};
     iox::popo::PublisherPortUser m_sutWithDefaultOptionsUserSide{&m_publisherPortDataDefault};
     iox::popo::PublisherPortRouDi m_sutWithDefaultOptionsRouDiSide{&m_publisherPortDataDefault};
 };
@@ -238,7 +250,7 @@ TEST_F(PublisherPort_test,
 TEST_F(PublisherPort_test, allocatingAChunkWithoutUserHeaderAndSmallUserPayloadAlignmentResultsInSmallChunk)
 {
     ::testing::Test::RecordProperty("TEST_ID", "467e0f06-3450-4cc9-ab84-5ccd5efab69d");
-    constexpr uint32_t USER_PAYLOAD_SIZE{SMALL_CHUNK / 2};
+    constexpr uint64_t USER_PAYLOAD_SIZE{SMALL_CHUNK / 2};
     auto maybeChunkHeader = m_sutNoOfferOnCreateUserSide.tryAllocateChunk(
         USER_PAYLOAD_SIZE, USER_PAYLOAD_ALIGNMENT, USER_HEADER_SIZE, USER_HEADER_ALIGNMENT);
 
@@ -249,7 +261,7 @@ TEST_F(PublisherPort_test, allocatingAChunkWithoutUserHeaderAndSmallUserPayloadA
 TEST_F(PublisherPort_test, allocatingAChunkWithoutUserHeaderAndLargeUserPayloadAlignmentResultsInLargeChunk)
 {
     ::testing::Test::RecordProperty("TEST_ID", "3bdf0578-93b3-470d-84af-9139919665db");
-    constexpr uint32_t USER_PAYLOAD_SIZE{SMALL_CHUNK / 2};
+    constexpr uint64_t USER_PAYLOAD_SIZE{SMALL_CHUNK / 2};
     constexpr uint32_t LARGE_USER_PAYLOAD_ALIGNMENT{SMALL_CHUNK};
     auto maybeChunkHeader = m_sutNoOfferOnCreateUserSide.tryAllocateChunk(
         USER_PAYLOAD_SIZE, LARGE_USER_PAYLOAD_ALIGNMENT, USER_HEADER_SIZE, USER_HEADER_ALIGNMENT);
@@ -261,7 +273,7 @@ TEST_F(PublisherPort_test, allocatingAChunkWithoutUserHeaderAndLargeUserPayloadA
 TEST_F(PublisherPort_test, allocatingAChunkWithLargeUserHeaderResultsInLargeChunk)
 {
     ::testing::Test::RecordProperty("TEST_ID", "598e04d8-8a37-43ef-b686-64e7b2723ffe");
-    constexpr uint32_t USER_PAYLOAD_SIZE{SMALL_CHUNK / 2};
+    constexpr uint64_t USER_PAYLOAD_SIZE{SMALL_CHUNK / 2};
     constexpr uint32_t LARGE_USER_HEADER_SIZE{SMALL_CHUNK};
     auto maybeChunkHeader = m_sutNoOfferOnCreateUserSide.tryAllocateChunk(
         USER_PAYLOAD_SIZE, USER_PAYLOAD_ALIGNMENT, LARGE_USER_HEADER_SIZE, USER_HEADER_ALIGNMENT);
@@ -331,7 +343,7 @@ TEST_F(PublisherPort_test, subscribeWhenNotOfferedReturnsNACK)
 {
     ::testing::Test::RecordProperty("TEST_ID", "71148938-58f1-4189-8461-8bab912e32c6");
     ChunkQueueData_t m_chunkQueueData{iox::popo::QueueFullPolicy::DISCARD_OLDEST_DATA,
-                                      iox::cxx::VariantQueueTypes::SoFi_SingleProducerSingleConsumer};
+                                      iox::popo::VariantQueueTypes::SoFi_SingleProducerSingleConsumer};
     iox::capro::CaproMessage caproMessage(iox::capro::CaproMessageType::SUB,
                                           iox::capro::ServiceDescription("a", "b", "c"));
     caproMessage.m_chunkQueueData = &m_chunkQueueData;
@@ -350,7 +362,7 @@ TEST_F(PublisherPort_test, unsubscribeWhenNotSubscribedReturnsNACK)
     m_sutNoOfferOnCreateUserSide.offer();
     m_sutNoOfferOnCreateRouDiSide.tryGetCaProMessage();
     ChunkQueueData_t m_chunkQueueData{iox::popo::QueueFullPolicy::DISCARD_OLDEST_DATA,
-                                      iox::cxx::VariantQueueTypes::SoFi_SingleProducerSingleConsumer};
+                                      iox::popo::VariantQueueTypes::SoFi_SingleProducerSingleConsumer};
     iox::capro::CaproMessage caproMessage(iox::capro::CaproMessageType::UNSUB,
                                           iox::capro::ServiceDescription("a", "b", "c"));
     caproMessage.m_chunkQueueData = &m_chunkQueueData;
@@ -369,7 +381,7 @@ TEST_F(PublisherPort_test, subscribeWhenOfferedReturnsACKAndWeHaveSubscribers)
     m_sutNoOfferOnCreateUserSide.offer();
     m_sutNoOfferOnCreateRouDiSide.tryGetCaProMessage();
     ChunkQueueData_t m_chunkQueueData{iox::popo::QueueFullPolicy::DISCARD_OLDEST_DATA,
-                                      iox::cxx::VariantQueueTypes::SoFi_SingleProducerSingleConsumer};
+                                      iox::popo::VariantQueueTypes::SoFi_SingleProducerSingleConsumer};
     iox::capro::CaproMessage caproMessage(iox::capro::CaproMessageType::SUB,
                                           iox::capro::ServiceDescription("a", "b", "c"));
     caproMessage.m_chunkQueueData = &m_chunkQueueData;
@@ -389,7 +401,7 @@ TEST_F(PublisherPort_test, unsubscribeWhenSubscribedReturnsACKAndWeHaveNoMoreSub
     m_sutNoOfferOnCreateUserSide.offer();
     m_sutNoOfferOnCreateRouDiSide.tryGetCaProMessage();
     ChunkQueueData_t m_chunkQueueData{iox::popo::QueueFullPolicy::DISCARD_OLDEST_DATA,
-                                      iox::cxx::VariantQueueTypes::SoFi_SingleProducerSingleConsumer};
+                                      iox::popo::VariantQueueTypes::SoFi_SingleProducerSingleConsumer};
     iox::capro::CaproMessage caproMessage(iox::capro::CaproMessageType::SUB,
                                           iox::capro::ServiceDescription("a", "b", "c"));
     caproMessage.m_chunkQueueData = &m_chunkQueueData;
@@ -415,7 +427,7 @@ TEST_F(PublisherPort_test, subscribeManyIsFine)
     uint64_t dummy;
     uint64_t* dummyPtr = &dummy;
     ChunkQueueData_t m_chunkQueueData{iox::popo::QueueFullPolicy::DISCARD_OLDEST_DATA,
-                                      iox::cxx::VariantQueueTypes::SoFi_SingleProducerSingleConsumer};
+                                      iox::popo::VariantQueueTypes::SoFi_SingleProducerSingleConsumer};
     iox::capro::CaproMessage caproMessage(iox::capro::CaproMessageType::SUB,
                                           iox::capro::ServiceDescription("a", "b", "c"));
     caproMessage.m_chunkQueueData = reinterpret_cast<ChunkQueueData_t*>(dummyPtr);
@@ -441,7 +453,7 @@ TEST_F(PublisherPort_test, subscribeTillOverflowReturnsNACK)
     uint64_t dummy;
     uint64_t* dummyPtr = &dummy;
     ChunkQueueData_t m_chunkQueueData{iox::popo::QueueFullPolicy::DISCARD_OLDEST_DATA,
-                                      iox::cxx::VariantQueueTypes::SoFi_SingleProducerSingleConsumer};
+                                      iox::popo::VariantQueueTypes::SoFi_SingleProducerSingleConsumer};
     iox::capro::CaproMessage caproMessage(iox::capro::CaproMessageType::SUB,
                                           iox::capro::ServiceDescription("a", "b", "c"));
     caproMessage.m_chunkQueueData = reinterpret_cast<ChunkQueueData_t*>(dummyPtr);
@@ -466,7 +478,7 @@ TEST_F(PublisherPort_test, sendWhenSubscribedDeliversAChunk)
     m_sutNoOfferOnCreateUserSide.offer();
     m_sutNoOfferOnCreateRouDiSide.tryGetCaProMessage();
     ChunkQueueData_t m_chunkQueueData{iox::popo::QueueFullPolicy::DISCARD_OLDEST_DATA,
-                                      iox::cxx::VariantQueueTypes::SoFi_SingleProducerSingleConsumer};
+                                      iox::popo::VariantQueueTypes::SoFi_SingleProducerSingleConsumer};
     iox::capro::CaproMessage caproMessage(iox::capro::CaproMessageType::SUB,
                                           iox::capro::ServiceDescription("a", "b", "c"));
     caproMessage.m_chunkQueueData = &m_chunkQueueData;
@@ -494,8 +506,11 @@ TEST_F(PublisherPort_test, subscribeWithHistoryLikeTheARAField)
     ::testing::Test::RecordProperty("TEST_ID", "12ea9650-c928-4185-8519-be949e2afcf7");
     iox::popo::PublisherOptions options;
     options.historyCapacity = 1U;
-    iox::popo::PublisherPortData publisherPortDataHistory{
-        iox::capro::ServiceDescription("x", "y", "z"), "myApp", &m_memoryManager, options};
+    iox::popo::PublisherPortData publisherPortDataHistory{iox::capro::ServiceDescription("x", "y", "z"),
+                                                          "myApp",
+                                                          iox::roudi::DEFAULT_UNIQUE_ROUDI_ID,
+                                                          &m_memoryManager,
+                                                          options};
     iox::popo::PublisherPortUser sutWithHistoryUseriSide{&publisherPortDataHistory};
     iox::popo::PublisherPortRouDi sutWithHistoryRouDiSide{&publisherPortDataHistory};
     // do it the ara field like way
@@ -512,7 +527,7 @@ TEST_F(PublisherPort_test, subscribeWithHistoryLikeTheARAField)
     sutWithHistoryRouDiSide.tryGetCaProMessage();
     // 3. subscribe with a history request
     ChunkQueueData_t m_chunkQueueData{iox::popo::QueueFullPolicy::DISCARD_OLDEST_DATA,
-                                      iox::cxx::VariantQueueTypes::SoFi_SingleProducerSingleConsumer};
+                                      iox::popo::VariantQueueTypes::SoFi_SingleProducerSingleConsumer};
     iox::capro::CaproMessage caproMessage(iox::capro::CaproMessageType::SUB,
                                           iox::capro::ServiceDescription("a", "b", "c"));
     caproMessage.m_chunkQueueData = &m_chunkQueueData;

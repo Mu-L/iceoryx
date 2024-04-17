@@ -19,8 +19,8 @@
 
 #include "process_introspection.hpp"
 
-#include "iceoryx_hoofs/posix_wrapper/thread.hpp"
 #include "iox/logging.hpp"
+#include "iox/thread.hpp"
 
 #include <chrono>
 
@@ -74,75 +74,6 @@ inline void ProcessIntrospection<PublisherPort>::removeProcess(const int pid) no
 }
 
 template <typename PublisherPort>
-inline void ProcessIntrospection<PublisherPort>::addNode(const RuntimeName_t& runtimeName,
-                                                         const NodeName_t& nodeName) noexcept
-{
-    std::lock_guard<std::mutex> guard(m_mutex);
-
-    bool processFound = false;
-    for (auto it_process = m_processList.begin(); it_process != m_processList.end(); ++it_process)
-    {
-        if (it_process->m_name == runtimeName)
-        {
-            processFound = true;
-            bool alreadyInList = false;
-            for (auto it_node = it_process->m_nodes.begin(); it_node != it_process->m_nodes.end(); ++it_node)
-            {
-                if (*it_node == nodeName)
-                {
-                    IOX_LOG(WARN) << "Node " << nodeName.c_str() << " already registered";
-                    alreadyInList = true;
-                }
-            }
-            if (!alreadyInList)
-            {
-                it_process->m_nodes.emplace_back(nodeName);
-            }
-        }
-    }
-    if (!processFound)
-    {
-        IOX_LOG(WARN) << "Trying to register node " << nodeName.c_str() << " but the related process is not registered";
-    }
-    m_processListNewData = true;
-}
-
-template <typename PublisherPort>
-inline void ProcessIntrospection<PublisherPort>::removeNode(const RuntimeName_t& runtimeName,
-                                                            const NodeName_t& nodeName) noexcept
-{
-    std::lock_guard<std::mutex> guard(m_mutex);
-
-    bool processFound = false;
-    for (auto it_process = m_processList.begin(); it_process != m_processList.end(); ++it_process)
-    {
-        if (it_process->m_name == runtimeName)
-        {
-            processFound = true;
-            bool removedFromList = false;
-            for (auto it_node = it_process->m_nodes.begin(); it_node != it_process->m_nodes.end(); ++it_node)
-            {
-                if (*it_node == nodeName)
-                {
-                    it_process->m_nodes.erase(it_node);
-                    removedFromList = true;
-                    break;
-                }
-            }
-            if (!removedFromList)
-            {
-                IOX_LOG(WARN) << "Trying to remove node " << nodeName.c_str() << " but it was not registered";
-            }
-        }
-    }
-    if (!processFound)
-    {
-        IOX_LOG(WARN) << "Trying to remove node " << nodeName.c_str() << " but the related process is not registered";
-    }
-    m_processListNewData = true;
-}
-
-template <typename PublisherPort>
 inline void ProcessIntrospection<PublisherPort>::registerPublisherPort(PublisherPort&& publisherPort) noexcept
 {
     // we do not want to call this twice
@@ -156,7 +87,7 @@ template <typename PublisherPort>
 inline void ProcessIntrospection<PublisherPort>::run() noexcept
 {
     // @todo iox-#518 error handling for non debug builds
-    cxx::Expects(m_publisherPort.has_value());
+    IOX_ENFORCE(m_publisherPort.has_value(), "Port must be initialized");
 
     // this is a field, there needs to be a sample before activate is called
     send();
@@ -201,7 +132,7 @@ template <typename PublisherPort>
 inline void ProcessIntrospection<PublisherPort>::setSendInterval(const units::Duration interval) noexcept
 {
     m_sendInterval = interval;
-    if (m_publishingTask.isActive())
+    if (m_publishingTask.is_active())
     {
         m_publishingTask.stop();
         m_publishingTask.start(m_sendInterval);

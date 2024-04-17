@@ -163,7 +163,7 @@ volatile bool keepRunning{true};
 using WaitSet = iox::popo::WaitSet<>;
 volatile WaitSet* waitsetSigHandlerAccess{nullptr};
 
-static void sigHandler(int sig IOX_MAYBE_UNUSED)
+static void sigHandler(int sig [[maybe_unused]])
 {
     keepRunning = false;
     if (waitsetSigHandlerAccess)
@@ -323,8 +323,8 @@ for (auto i = 0U; i < NUMBER_OF_SUBSCRIBERS; ++i)
     subscriberVector.emplace_back(iox::capro::ServiceDescription{"Radar", "FrontLeft", "Counter"});
     auto& subscriber = subscriberVector.back();
 
-    /// important: the user has to ensure that the contextData (sumOfAllSamples) lives as long as
-    ///            the subscriber with its callback is attached to the listener
+    /// important: the user has to ensure that the 'contextData' (here 'sumOfAllSamples') lives as long as
+    ///            the subscriber with its callback when attached to the 'waitset'
     waitset
         .attachEvent(subscriber,
                      iox::popo::SubscriberEvent::DATA_RECEIVED,

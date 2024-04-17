@@ -1,5 +1,6 @@
 // Copyright (c) 2020 by Robert Bosch GmbH. All rights reserved.
 // Copyright (c) 2021 - 2022 by Apex.AI Inc. All rights reserved.
+// Copyright (c) 2023 by ekxide IO GmbH. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,6 +19,7 @@
 #define IOX_POSH_POPO_BUILDING_BLOCKS_CHUNK_DISTRIBUTOR_INL
 
 #include "iceoryx_posh/internal/popo/building_blocks/chunk_distributor.hpp"
+#include "iceoryx_posh/internal/posh_error_reporting.hpp"
 
 namespace iox
 {
@@ -69,8 +71,9 @@ ChunkDistributor<ChunkDistributorDataType>::tryAddQueue(not_null<ChunkQueueData_
 
             if (requestedHistory > getMembers()->m_historyCapacity)
             {
-                IOX_LOG(WARN) << "Chunk history request exceeds history capacity! Request is " << requestedHistory
-                              << ". Capacity is " << getMembers()->m_historyCapacity << ".";
+                IOX_LOG(WARN,
+                        "Chunk history request exceeds history capacity! Request is "
+                            << requestedHistory << ". Capacity is " << getMembers()->m_historyCapacity << ".");
             }
 
             // if the current history is large enough we send the requested number of chunks, else we send the
@@ -88,7 +91,7 @@ ChunkDistributor<ChunkDistributorDataType>::tryAddQueue(not_null<ChunkQueueData_
         {
             // that's not the fault of the chunk distributor user, we report a moderate error and indicate that
             // adding the queue was not possible
-            errorHandler(PoshError::POPO__CHUNK_DISTRIBUTOR_OVERFLOW_OF_QUEUE_CONTAINER, ErrorLevel::MODERATE);
+            IOX_REPORT(PoshError::POPO__CHUNK_DISTRIBUTOR_OVERFLOW_OF_QUEUE_CONTAINER, iox::er::RUNTIME_ERROR);
 
             return err(ChunkDistributorError::QUEUE_CONTAINER_OVERFLOW);
         }
@@ -139,7 +142,8 @@ template <typename ChunkDistributorDataType>
 inline uint64_t ChunkDistributor<ChunkDistributorDataType>::deliverToAllStoredQueues(mepoo::SharedChunk chunk) noexcept
 {
     uint64_t numberOfQueuesTheChunkWasDeliveredTo{0U};
-    typename ChunkDistributorDataType::QueueContainer_t remainingQueues;
+    using QueueContainer = decltype(getMembers()->m_queues);
+    QueueContainer fullQueuesAwaitingDelivery;
     {
         typename MemberType_t::LockGuard_t lock(*getMembers());
 
@@ -157,7 +161,7 @@ inline uint64_t ChunkDistributor<ChunkDistributorDataType>::deliverToAllStoredQu
             {
                 if (isBlockingQueue)
                 {
-                    remainingQueues.emplace_back(queue);
+                    fullQueuesAwaitingDelivery.emplace_back(queue);
                 }
                 else
                 {
@@ -170,43 +174,48 @@ inline uint64_t ChunkDistributor<ChunkDistributorDataType>::deliverToAllStoredQu
 
     // busy waiting until every queue is served
     iox::detail::adaptive_wait adaptiveWait;
-    while (!remainingQueues.empty())
+    while (!fullQueuesAwaitingDelivery.empty())
     {
         adaptiveWait.wait();
         {
-            // create intersection of current queues and remainingQueues
+            // create intersection of current queues and fullQueuesAwaitingDelivery
             // reason: it is possible that since the last iteration some subscriber have already unsubscribed
             //          and without this intersection we would deliver to dead queues
             typename MemberType_t::LockGuard_t lock(*getMembers());
-            typename ChunkDistributorDataType::QueueContainer_t queueIntersection(remainingQueues.size());
-            auto greaterThan = [](RelativePointer<ChunkQueueData_t>& a, RelativePointer<ChunkQueueData_t>& b) -> bool {
+            QueueContainer remainingQueues;
+            using QueueContainerValue = typename QueueContainer::value_type;
+            auto greaterThan = [](QueueContainerValue& a, QueueContainerValue& b) -> bool {
                 return reinterpret_cast<uint64_t>(a.get()) > reinterpret_cast<uint64_t>(b.get());
             };
             std::sort(getMembers()->m_queues.begin(), getMembers()->m_queues.end(), greaterThan);
-            std::sort(remainingQueues.begin(), remainingQueues.end(), greaterThan);
 
-            auto iter = std::set_intersection(getMembers()->m_queues.begin(),
-                                              getMembers()->m_queues.end(),
-                                              remainingQueues.begin(),
-                                              remainingQueues.end(),
-                                              queueIntersection.begin(),
-                                              greaterThan);
-            queueIntersection.resize(static_cast<uint64_t>(iter - queueIntersection.begin()));
-            remainingQueues = queueIntersection;
+#if (defined(__GNUC__) && __GNUC__ == 13 && !defined(__clang__))
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Warray-bounds"
+#endif
+            std::sort(fullQueuesAwaitingDelivery.begin(), fullQueuesAwaitingDelivery.end(), greaterThan);
+#if (defined(__GNUC__) && __GNUC__ == 13 && !defined(__clang__))
+#pragma GCC diagnostic pop
+#endif
+
+            std::set_intersection(getMembers()->m_queues.begin(),
+                                  getMembers()->m_queues.end(),
+                                  fullQueuesAwaitingDelivery.begin(),
+                                  fullQueuesAwaitingDelivery.end(),
+                                  std::back_inserter(remainingQueues),
+                                  greaterThan);
+            fullQueuesAwaitingDelivery.clear();
 
             // deliver to remaining queues
-            for (uint64_t i = remainingQueues.size() - 1U; !remainingQueues.empty(); --i)
+            for (auto& queue : remainingQueues)
             {
-                if (pushToQueue(remainingQueues[i].get(), chunk))
+                if (pushToQueue(queue.get(), chunk))
                 {
-                    remainingQueues.erase(remainingQueues.begin() + i);
                     ++numberOfQueuesTheChunkWasDeliveredTo;
                 }
-
-                // don't move this up since the for loop counts downwards and the algorithm would break
-                if (i == 0U)
+                else
                 {
-                    break;
+                    fullQueuesAwaitingDelivery.push_back(queue);
                 }
             }
         }
@@ -228,7 +237,7 @@ template <typename ChunkDistributorDataType>
 inline expected<void, ChunkDistributorError>
 ChunkDistributor<ChunkDistributorDataType>::deliverToQueue(const UniqueId uniqueQueueId,
                                                            const uint32_t lastKnownQueueIndex,
-                                                           mepoo::SharedChunk chunk IOX_MAYBE_UNUSED) noexcept
+                                                           mepoo::SharedChunk chunk [[maybe_unused]]) noexcept
 {
     bool retry{false};
     do
@@ -352,8 +361,7 @@ inline void ChunkDistributor<ChunkDistributorDataType>::cleanup() noexcept
         /// and a sending application dies when having the lock for sending. If the RouDi daemon wants to
         /// cleanup or does discovery changes we have a deadlock or an exception when destroying the mutex
         /// As long as we don't have a multi-threaded lock-free ChunkDistributor or another concept we die here
-        errorHandler(PoshError::POPO__CHUNK_DISTRIBUTOR_CLEANUP_DEADLOCK_BECAUSE_BAD_APPLICATION_TERMINATION,
-                     ErrorLevel::FATAL);
+        IOX_REPORT_FATAL(PoshError::POPO__CHUNK_DISTRIBUTOR_CLEANUP_DEADLOCK_BECAUSE_BAD_APPLICATION_TERMINATION);
     }
 }
 

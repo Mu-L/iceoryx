@@ -17,17 +17,22 @@
 #ifndef IOX_HOOFS_CXX_UNIQUE_PTR_HPP
 #define IOX_HOOFS_CXX_UNIQUE_PTR_HPP
 
+#include "iox/detail/deprecation_marker.hpp"
 #include "iox/unique_ptr.hpp"
+
+IOX_DEPRECATED_HEADER_SINCE(3, "Please include 'iox/unique_ptr.hpp' instead.")
+
+// clang-format off
 
 namespace iox
 {
-/// @todo iox-#1593 Deprecate include
-/// [[deprecated("Deprecated in 3.0, removed in 4.0, please include 'iox/unique_ptr.hpp' instead")]]
-namespace cxx
+namespace IOX_DEPRECATED_SINCE(3, "Please use the 'iox' namespace directly and the corresponding header.") cxx
 {
 /// @deprecated
 using iox::unique_ptr;
 } // namespace cxx
 } // namespace iox
+
+// clang-format on
 
 #endif // IOX_HOOFS_CXX_UNIQUE_PTR_HPP

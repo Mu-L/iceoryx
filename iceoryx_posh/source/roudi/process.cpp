@@ -18,6 +18,7 @@
 #include "iceoryx_posh/internal/roudi/process.hpp"
 #include "iceoryx_platform/types.hpp"
 #include "iceoryx_posh/iceoryx_posh_types.hpp"
+#include "iceoryx_posh/internal/posh_error_reporting.hpp"
 #include "iox/logging.hpp"
 
 using namespace iox::units::duration_literals;
@@ -26,15 +27,15 @@ namespace iox
 namespace roudi
 {
 Process::Process(const RuntimeName_t& name,
+                 const DomainId domainId,
                  const uint32_t pid,
-                 const posix::PosixUser& user,
-                 const bool isMonitored,
+                 const PosixUser& user,
+                 const HeartbeatPoolIndexType heartbeatPoolIndex,
                  const uint64_t sessionId) noexcept
     : m_pid(pid)
-    , m_ipcChannel(name)
-    , m_timestamp(mepoo::BaseClock_t::now())
+    , m_ipcChannel(name, domainId, ResourceType::USER_DEFINED)
+    , m_heartbeatPoolIndex(heartbeatPoolIndex)
     , m_user(user)
-    , m_isMonitored(isMonitored)
     , m_sessionId(sessionId)
 {
 }
@@ -54,8 +55,8 @@ void Process::sendViaIpcChannel(const runtime::IpcMessage& data) noexcept
     bool sendSuccess = m_ipcChannel.send(data);
     if (!sendSuccess)
     {
-        IOX_LOG(WARN) << "Process cannot send message over communication channel";
-        errorHandler(PoshError::POSH__ROUDI_PROCESS_SEND_VIA_IPC_CHANNEL_FAILED, ErrorLevel::MODERATE);
+        IOX_LOG(WARN, "Process cannot send message over communication channel");
+        IOX_REPORT(PoshError::POSH__ROUDI_PROCESS_SEND_VIA_IPC_CHANNEL_FAILED, iox::er::RUNTIME_ERROR);
     }
 }
 
@@ -64,24 +65,19 @@ uint64_t Process::getSessionId() noexcept
     return m_sessionId.load(std::memory_order_relaxed);
 }
 
-void Process::setTimestamp(const mepoo::TimePointNs_t timestamp) noexcept
-{
-    m_timestamp = timestamp;
-}
-
-mepoo::TimePointNs_t Process::getTimestamp() noexcept
-{
-    return m_timestamp;
-}
-
-posix::PosixUser Process::getUser() const noexcept
+PosixUser Process::getUser() const noexcept
 {
     return m_user;
 }
 
+HeartbeatPoolIndexType Process::getHeartbeatPoolIndex() const noexcept
+{
+    return m_heartbeatPoolIndex;
+}
+
 bool Process::isMonitored() const noexcept
 {
-    return m_isMonitored;
+    return m_heartbeatPoolIndex != HeartbeatPool::Index::INVALID;
 }
 
 } // namespace roudi

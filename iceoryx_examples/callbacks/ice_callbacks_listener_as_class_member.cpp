@@ -14,12 +14,12 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "iceoryx_dust/posix_wrapper/signal_watcher.hpp"
 #include "iceoryx_posh/popo/listener.hpp"
 #include "iceoryx_posh/popo/subscriber.hpp"
 #include "iceoryx_posh/popo/user_trigger.hpp"
 #include "iceoryx_posh/runtime/posh_runtime.hpp"
 #include "iox/optional.hpp"
+#include "iox/signal_watcher.hpp"
 #include "topic_data.hpp"
 
 #include <chrono>
@@ -68,7 +68,8 @@ class CounterService
     //! [callback]
     static void onSampleReceivedCallback(iox::popo::Subscriber<CounterTopic>* subscriber, CounterService* self)
     {
-        subscriber->take().and_then([subscriber, self](auto& sample) {
+        // take all samples from the subscriber queue
+        while (subscriber->take().and_then([subscriber, self](auto& sample) {
             auto instanceString = subscriber->getServiceDescription().getInstanceIDString();
 
             // store the sample in the corresponding cache
@@ -82,7 +83,9 @@ class CounterService
             }
 
             std::cout << "received: " << sample->counter << std::endl;
-        });
+        }))
+        {
+        }
 
         // if both caches are filled we can process them
         if (self->m_leftCache && self->m_rightCache)
@@ -112,7 +115,7 @@ int main()
 
     CounterService counterService;
 
-    iox::posix::waitForTerminationRequest();
+    iox::waitForTerminationRequest();
     //! [init]
 
     return (EXIT_SUCCESS);

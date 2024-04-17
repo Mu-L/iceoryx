@@ -5,6 +5,9 @@
 # - hicpp-member-init (duplicate of cppcoreguidelines-pro-type-member-init)
 # - performance-move-const-arg (duplicate of hicpp-move-const-arg)
 # - bugprone-use-after-move (duplicate of hicpp-move-const-arg)
+#
+# NOTE: following checks are disabled because they are deprecated
+# - cert-dcl21-cpp
 
 Checks: '
 -*,
@@ -18,6 +21,7 @@ concurrency-*,
 performance-*,
 hicpp-*,
 
+-cppcoreguidelines-avoid-do-while
 -cppcoreguidelines-non-private-member-variables-in-classes,
 
 -hicpp-named-parameter,
@@ -31,6 +35,8 @@ hicpp-*,
 -readability-identifier-naming,
 -readability-use-anyofallof,
 -readability-named-parameter,
+
+-cert-dcl21-cpp
 
 '
 
@@ -93,7 +99,10 @@ hicpp-*,
 #        void bar(Foo& foo) {...}
 #
 # * rule: readability-use-anyofallof
-#   justification: requires C++20 and std::ranges but we only use C++14
+#   justification: requires C++20 and std::ranges but we only use C++17
+#
+# * rule: cppcoreguidelines-avoid-do-while
+#   justification: there is nothing inherently wrong with do-while loops and there are valid use cases for them
 #
 # * rule: cppcoreguidelines-non-private-member-variables-in-classes
 #   justification: Sometimes it makes sense to have protected members to extend the base class.

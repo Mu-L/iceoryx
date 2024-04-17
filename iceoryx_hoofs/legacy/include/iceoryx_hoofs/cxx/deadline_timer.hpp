@@ -18,16 +18,21 @@
 #define IOX_HOOFS_CXX_DEADLINE_TIMER_HPP
 
 #include "iox/deadline_timer.hpp"
+#include "iox/detail/deprecation_marker.hpp"
+
+IOX_DEPRECATED_HEADER_SINCE(3, "Please include 'iox/deadline_timer.hpp' instead.")
+
+// clang-format off
 
 namespace iox
 {
-/// @todo iox-#1593 Deprecate include
-/// [[deprecated("Deprecated in 3.0, removed in 4.0, please include 'iox/deadline_timer.hpp' instead")]]
-namespace cxx
+namespace IOX_DEPRECATED_SINCE(3, "Please use the 'iox' namespace directly and the corresponding header.") cxx
 {
 /// @deprecated use 'iox::deadline_timer' instead of 'iox::cxx::DeadlineTimer'
-using DeadlineTimer = iox::deadline_timer;
+using DeadlineTimer IOX_DEPRECATED_SINCE(3, "Please use 'iox::deadline_timer' instead.") = iox::deadline_timer;
 } // namespace cxx
 } // namespace iox
+
+// clang-format on
 
 #endif // IOX_HOOFS_CXX_DEADLINE_TIMER_HPP

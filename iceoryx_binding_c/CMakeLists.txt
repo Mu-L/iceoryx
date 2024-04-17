@@ -27,7 +27,6 @@ find_package(iceoryx_posh REQUIRED)
 include(IceoryxPackageHelper)
 include(IceoryxPlatform)
 include(IceoryxPlatformSettings)
-include(IceoryxPoshDeployment)
 
 if(CMAKE_SYSTEM_NAME MATCHES Linux OR CMAKE_SYSTEM_NAME MATCHES Darwin)
     option(BUILD_SHARED_LIBS "Create shared libraries by default" ON)
@@ -43,7 +42,7 @@ iox_add_library(
     NAMESPACE           ${PROJECT_NAME}
     PROJECT_PREFIX      ${PREFIX}
     BUILD_INTERFACE     ${CMAKE_CURRENT_SOURCE_DIR}/include
-                        ${CMAKE_BINARY_DIR}/generated/iceoryx/include
+                        ${CMAKE_BINARY_DIR}/generated/iceoryx_binding_c/include
     INSTALL_INTERFACE   include/${PREFIX}
     EXPORT_INCLUDE_DIRS include/
     PUBLIC_LIBS_LINUX   stdc++ pthread
@@ -51,11 +50,11 @@ iox_add_library(
     PUBLIC_LIBS_APPLE   stdc++ pthread
     PRIVATE_LIBS        iceoryx_posh::iceoryx_posh
     FILES
+        source/binding_c_error_reporting.cpp
         source/c_client.cpp
         source/c_config.cpp
         source/c_notification_info.cpp
         source/c_listener.cpp
-        source/c_node.cpp
         source/c_publisher.cpp
         source/c_request_header.cpp
         source/c_response_header.cpp
@@ -72,7 +71,6 @@ iox_add_library(
         source/cpp2c_subscriber.cpp
         source/cpp2c_service_description_translation.cpp
         source/c_service_discovery.cpp
-        source/error_handling.cpp
 )
 
 #

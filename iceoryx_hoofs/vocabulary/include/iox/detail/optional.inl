@@ -169,11 +169,11 @@ optional<T>::operator=(U&& newValue) noexcept
 {
     if (m_hasValue)
     {
-        value() = std::forward<T>(newValue);
+        value() = std::forward<U>(newValue);
     }
     else
     {
-        construct_value(std::forward<T>(newValue));
+        construct_value(std::forward<U>(newValue));
     }
     return *this;
 }
@@ -239,7 +239,7 @@ inline void optional<T>::reset() noexcept
 template <typename T>
 inline T& optional<T>::value() & noexcept
 {
-    cxx::Expects(has_value());
+    IOX_ENFORCE(has_value(), "Calling 'value' on an 'optional' which does not have a value");
     // AXIVION Next Construct AutosarC++19_03-M5.2.8 : The optional has the type T defined
     // during compile time and the type is unchangeable during the lifetime of the object.
     // All accesses to the underlying data is done via the same static type and therefore the
@@ -258,7 +258,7 @@ inline const T& optional<T>::value() const& noexcept
 template <typename T>
 inline T&& optional<T>::value() && noexcept
 {
-    cxx::Expects(has_value());
+    IOX_ENFORCE(has_value(), "Calling 'value' on an 'optional' which does not have a value");
     // AXIVION Next Construct AutosarC++19_03-M5.2.8 : The optional has the type T defined
     // during compile time and the type is unchangeable during the lifetime of the object.
     // All accesses to the underlying data is done via the same static type and therefore the
@@ -288,7 +288,7 @@ inline void optional<T>::destruct_value() noexcept
     value().~T();
     m_hasValue = false;
 }
-// AXIVION Next Construct AutosarC++19_03-M17.0.3 : make_optional is defined within iox::cxx which prevents easy misuse
+// AXIVION Next Construct AutosarC++19_03-M17.0.3 : make_optional is defined within the iox namespace which prevents easy misuse
 template <typename OptionalBaseType, typename... Targs>
 inline optional<OptionalBaseType> make_optional(Targs&&... args) noexcept
 {

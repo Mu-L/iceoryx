@@ -17,27 +17,25 @@
 
 #include "iceoryx_posh/internal/popo/building_blocks/unique_port_id.hpp"
 #include "iceoryx_posh/iceoryx_posh_types.hpp"
+#include "iceoryx_posh/internal/posh_error_reporting.hpp"
 
 namespace iox
 {
 namespace popo
 {
-std::atomic<uint16_t> UniquePortId::uniqueRouDiId{roudi::DEFAULT_UNIQUE_ROUDI_ID};
-
 // start with 1 to prevent accidentally generating an invalid ID when unique roudi ID is 0
 std::atomic<UniquePortId::value_type> UniquePortId::globalIDCounter{1U};
 
-UniquePortId::UniquePortId() noexcept
+UniquePortId::UniquePortId(const roudi::UniqueRouDiId uniqueRouDiId) noexcept
     : ThisType(newtype::internal::ProtectedConstructor,
-               (static_cast<UniquePortId::value_type>(getUniqueRouDiId()) << UNIQUE_ID_BIT_LENGTH)
+               (static_cast<UniquePortId::value_type>(static_cast<roudi::UniqueRouDiId::value_type>(uniqueRouDiId))
+                << UNIQUE_ID_BIT_LENGTH)
                    + ((globalIDCounter.fetch_add(1u, std::memory_order_relaxed) << ROUDI_ID_BIT_LENGTH)
                       >> ROUDI_ID_BIT_LENGTH))
 {
-    UniquePortId::finalizeSetUniqueRouDiId();
-
     if (globalIDCounter.load() >= (static_cast<UniquePortId::value_type>(1u) << UNIQUE_ID_BIT_LENGTH))
     {
-        errorHandler(PoshError::POPO__TYPED_UNIQUE_ID_OVERFLOW, ErrorLevel::FATAL);
+        IOX_REPORT_FATAL(PoshError::POPO__TYPED_UNIQUE_ID_OVERFLOW);
     }
 }
 
@@ -46,39 +44,11 @@ UniquePortId::UniquePortId(InvalidPortId_t) noexcept
     /// with gcc-7.x - gcc-10.x. Who knows why?!
     : ThisType(newtype::internal::ProtectedConstructor, static_cast<UniquePortId::value_type>(INVALID_UNIQUE_ID))
 {
-    // finalizeSetUniqueRouDiId intentionally not called since the InvalidPortId does not have a unique RouDi ID anyway
 }
 
 bool UniquePortId::isValid() const noexcept
 {
     return UniquePortId(InvalidPortId) != *this;
-}
-
-void UniquePortId::setUniqueRouDiId(const uint16_t id) noexcept
-{
-    if (finalizeSetUniqueRouDiId())
-    {
-        errorHandler(PoshError::POPO__TYPED_UNIQUE_ID_ROUDI_HAS_ALREADY_DEFINED_CUSTOM_UNIQUE_ID, ErrorLevel::SEVERE);
-    }
-    uniqueRouDiId.store(id, std::memory_order_relaxed);
-}
-
-void UniquePortId::rouDiEnvOverrideUniqueRouDiId(const uint16_t id) noexcept
-{
-    uniqueRouDiId.store(id, std::memory_order_relaxed);
-}
-
-bool UniquePortId::finalizeSetUniqueRouDiId() noexcept
-{
-    static bool finalized{false};
-    auto oldFinalized = finalized;
-    finalized = true;
-    return oldFinalized;
-}
-
-uint16_t UniquePortId::getUniqueRouDiId() noexcept
-{
-    return uniqueRouDiId.load(std::memory_order_relaxed);
 }
 
 } // namespace popo

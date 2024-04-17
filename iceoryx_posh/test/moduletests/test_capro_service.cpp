@@ -17,15 +17,16 @@
 
 #include "test.hpp"
 
-#include "iceoryx_dust/cxx/convert.hpp"
-#include "iceoryx_dust/cxx/serialization.hpp"
-#include "iceoryx_hoofs/error_handling/error_handling.hpp"
-#include "iceoryx_hoofs/testing/fatal_failure.hpp"
-#include "iceoryx_hoofs/testing/mocks/logger_mock.hpp"
 #include "iceoryx_posh/capro/service_description.hpp"
+#include "iox/detail/convert.hpp"
+#include "iox/detail/hoofs_error_reporting.hpp"
+#include "iox/detail/serialization.hpp"
 #include "iox/string.hpp"
 /// @todo iox-#415 replace the service registry include with the new discovery API header
 #include "iceoryx_posh/internal/roudi/service_registry.hpp"
+
+#include "iceoryx_hoofs/testing/fatal_failure.hpp"
+#include "iceoryx_hoofs/testing/mocks/logger_mock.hpp"
 
 #include <cstdint>
 
@@ -133,7 +134,7 @@ TEST_F(ServiceDescription_test, ClassHashSubsriptOperatorOutOfBoundsFails)
     testHash[3] = 4U;
 
 
-    IOX_EXPECT_FATAL_FAILURE<iox::HoofsError>([&] { testHash[4] = 5U; }, iox::HoofsError::EXPECTS_ENSURES_FAILED);
+    IOX_EXPECT_FATAL_FAILURE([&] { testHash[4] = 5U; }, iox::er::FATAL);
 }
 
 /// END CLASSHASH TESTS
@@ -152,15 +153,15 @@ TEST_F(ServiceDescription_test, ServiceDescriptionSerializationCreatesServiceDes
     testEvent = "Event";
     Scope testScope = Scope::LOCAL;
     Interfaces testInterfaceSource = Interfaces::INTERNAL;
-    auto serialObj = iox::cxx::Serialization::create(testService.c_str(),
-                                                     testInstance.c_str(),
-                                                     testEvent.c_str(),
-                                                     testHash[0],
-                                                     testHash[1],
-                                                     testHash[2],
-                                                     testHash[3],
-                                                     static_cast<uint16_t>(testScope),
-                                                     static_cast<uint16_t>(testInterfaceSource));
+    auto serialObj = iox::Serialization::create(testService.c_str(),
+                                                testInstance.c_str(),
+                                                testEvent.c_str(),
+                                                testHash[0],
+                                                testHash[1],
+                                                testHash[2],
+                                                testHash[3],
+                                                static_cast<uint16_t>(testScope),
+                                                static_cast<uint16_t>(testInterfaceSource));
 
 
     ServiceDescription::deserialize(serialObj)
@@ -192,19 +193,19 @@ TEST_F(ServiceDescription_test,
     testInstance = "Instance";
     testEvent = "Event";
     uint16_t invalidScope = 3U;
-    auto serialObj = iox::cxx::Serialization::create(testService.c_str(),
-                                                     testInstance.c_str(),
-                                                     testEvent.c_str(),
-                                                     testHash[0],
-                                                     testHash[1],
-                                                     testHash[2],
-                                                     testHash[3],
-                                                     invalidScope);
+    auto serialObj = iox::Serialization::create(testService.c_str(),
+                                                testInstance.c_str(),
+                                                testEvent.c_str(),
+                                                testHash[0],
+                                                testHash[1],
+                                                testHash[2],
+                                                testHash[3],
+                                                invalidScope);
 
     auto deserializationResult = ServiceDescription::deserialize(serialObj);
 
     ASSERT_TRUE(deserializationResult.has_error());
-    EXPECT_THAT(deserializationResult.error(), Eq(iox::cxx::Serialization::Error::DESERIALIZATION_FAILED));
+    EXPECT_THAT(deserializationResult.error(), Eq(iox::Serialization::Error::DESERIALIZATION_FAILED));
 }
 
 /// @attention The purpose of the Serialization is not to be an alternative Constructor. It is intended to send/receive
@@ -220,32 +221,32 @@ TEST_F(ServiceDescription_test,
     testEvent = "Event";
     uint16_t testScope = 2U;
     uint16_t invalidInterfaceSource = 10U;
-    auto serialObj = iox::cxx::Serialization::create(testService.c_str(),
-                                                     testInstance.c_str(),
-                                                     testEvent.c_str(),
-                                                     testHash[0],
-                                                     testHash[1],
-                                                     testHash[2],
-                                                     testHash[3],
-                                                     testScope,
-                                                     invalidInterfaceSource);
+    auto serialObj = iox::Serialization::create(testService.c_str(),
+                                                testInstance.c_str(),
+                                                testEvent.c_str(),
+                                                testHash[0],
+                                                testHash[1],
+                                                testHash[2],
+                                                testHash[3],
+                                                testScope,
+                                                invalidInterfaceSource);
 
     auto deserializationResult = ServiceDescription::deserialize(serialObj);
 
     ASSERT_TRUE(deserializationResult.has_error());
-    EXPECT_THAT(deserializationResult.error(), Eq(iox::cxx::Serialization::Error::DESERIALIZATION_FAILED));
+    EXPECT_THAT(deserializationResult.error(), Eq(iox::Serialization::Error::DESERIALIZATION_FAILED));
 }
 
 TEST_F(ServiceDescription_test, ServiceDescriptionObjectInitialisationWithEmptyStringLeadsToInvalidDeserialization)
 {
     ::testing::Test::RecordProperty("TEST_ID", "4607d73d-d27d-4694-833d-2e28162589cd");
     std::string emptyString;
-    iox::cxx::Serialization invalidSerialObj{emptyString};
+    iox::Serialization invalidSerialObj{emptyString};
 
     auto deserializationResult = ServiceDescription::deserialize(invalidSerialObj);
 
     ASSERT_TRUE(deserializationResult.has_error());
-    EXPECT_THAT(deserializationResult.error(), Eq(iox::cxx::Serialization::Error::DESERIALIZATION_FAILED));
+    EXPECT_THAT(deserializationResult.error(), Eq(iox::Serialization::Error::DESERIALIZATION_FAILED));
 }
 
 TEST_F(ServiceDescription_test, ServiceDescriptionDefaultCtorInitializesStringsToEmptyString)

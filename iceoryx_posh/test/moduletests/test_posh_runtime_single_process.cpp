@@ -15,15 +15,18 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "iceoryx_posh/roudi_env/minimal_roudi_config.hpp"
+#include "iceoryx_posh/internal/posh_error_reporting.hpp"
+#include "iceoryx_posh/roudi_env/minimal_iceoryx_config.hpp"
 #include "iceoryx_posh/roudi_env/roudi_env.hpp"
 #include "iceoryx_posh/runtime/posh_runtime_single_process.hpp"
 
+#include "iceoryx_hoofs/testing/fatal_failure.hpp"
 #include "test.hpp"
 
 namespace
 {
 using namespace ::testing;
+using namespace iox::testing;
 using namespace iox::runtime;
 using namespace iox::roudi;
 using namespace iox::roudi_env;
@@ -50,37 +53,29 @@ class PoshRuntimeSingleProcess_test : public Test
 TEST_F(PoshRuntimeSingleProcess_test, ConstructorPoshRuntimeSingleProcessIsSuccess)
 {
     ::testing::Test::RecordProperty("TEST_ID", "9faf7053-86af-4d26-b3a7-fb3c6319ab86");
-    std::unique_ptr<IceOryxRouDiComponents> roudiComponents{
-        new IceOryxRouDiComponents(MinimalRouDiConfigBuilder().create())};
+    auto config = MinimalIceoryxConfigBuilder().create();
+    config.sharesAddressSpaceWithApplications = true;
 
-    std::unique_ptr<RouDi> roudi{new RouDi(roudiComponents->rouDiMemoryManager,
-                                           roudiComponents->portManager,
-                                           RouDi::RoudiStartupParameters{iox::roudi::MonitoringMode::OFF, false})};
+    std::unique_ptr<IceOryxRouDiComponents> roudiComponents{new IceOryxRouDiComponents(config)};
+
+    std::unique_ptr<RouDi> roudi{new RouDi(roudiComponents->rouDiMemoryManager, roudiComponents->portManager, config)};
 
     const RuntimeName_t runtimeName{"App"};
 
-    EXPECT_NO_FATAL_FAILURE(
-        { std::unique_ptr<PoshRuntimeSingleProcess> sut{new PoshRuntimeSingleProcess(runtimeName)}; });
+    IOX_EXPECT_NO_FATAL_FAILURE(
+        [&] { std::unique_ptr<PoshRuntimeSingleProcess> sut{new PoshRuntimeSingleProcess(runtimeName)}; });
 }
 
 TEST_F(PoshRuntimeSingleProcess_test, ConstructorPoshRuntimeSingleProcessMultipleProcessIsFound)
 {
     ::testing::Test::RecordProperty("TEST_ID", "1cc7ad5d-5878-454a-94ba-5cf412c22682");
-    RouDiEnv roudiEnv{MinimalRouDiConfigBuilder().create()};
+    RouDiEnv roudiEnv;
 
     const RuntimeName_t runtimeName{"App"};
 
-    iox::optional<iox::PoshError> detectedError;
-    auto errorHandlerGuard = iox::ErrorHandlerMock::setTemporaryErrorHandler<iox::PoshError>(
-        [&detectedError](const iox::PoshError error, const iox::ErrorLevel errorLevel) {
-            detectedError.emplace(error);
-            EXPECT_THAT(errorLevel, Eq(iox::ErrorLevel::FATAL));
-        });
-
-    std::unique_ptr<PoshRuntimeSingleProcess> sut{new PoshRuntimeSingleProcess(runtimeName)};
-
-    ASSERT_THAT(detectedError.has_value(), Eq(true));
-    EXPECT_THAT(detectedError.value(), Eq(iox::PoshError::POSH__RUNTIME_IS_CREATED_MULTIPLE_TIMES));
+    IOX_EXPECT_FATAL_FAILURE(
+        [&] { std::unique_ptr<PoshRuntimeSingleProcess> sut{new PoshRuntimeSingleProcess(runtimeName)}; },
+        iox::PoshError::POSH__RUNTIME_IS_CREATED_MULTIPLE_TIMES);
 }
 
 } // namespace

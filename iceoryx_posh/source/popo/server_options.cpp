@@ -21,24 +21,23 @@ namespace iox
 {
 namespace popo
 {
-cxx::Serialization ServerOptions::serialize() const noexcept
+Serialization ServerOptions::serialize() const noexcept
 {
-    return cxx::Serialization::create(requestQueueCapacity,
-                                      nodeName,
-                                      offerOnCreate,
-                                      static_cast<std::underlying_type_t<QueueFullPolicy>>(requestQueueFullPolicy),
-                                      static_cast<std::underlying_type_t<ConsumerTooSlowPolicy>>(clientTooSlowPolicy));
+    return Serialization::create(requestQueueCapacity,
+                                 nodeName,
+                                 offerOnCreate,
+                                 static_cast<std::underlying_type_t<QueueFullPolicy>>(requestQueueFullPolicy),
+                                 static_cast<std::underlying_type_t<ConsumerTooSlowPolicy>>(clientTooSlowPolicy));
 }
 
-expected<ServerOptions, cxx::Serialization::Error>
-ServerOptions::deserialize(const cxx::Serialization& serialized) noexcept
+expected<ServerOptions, Serialization::Error> ServerOptions::deserialize(const Serialization& serialized) noexcept
 {
     using QueueFullPolicyUT = std::underlying_type_t<QueueFullPolicy>;
     using ClientTooSlowPolicyUT = std::underlying_type_t<ConsumerTooSlowPolicy>;
 
-    ServerOptions serverOptions;
-    QueueFullPolicyUT requestQueueFullPolicy;
-    ClientTooSlowPolicyUT clientTooSlowPolicy;
+    ServerOptions serverOptions{};
+    QueueFullPolicyUT requestQueueFullPolicy{};
+    ClientTooSlowPolicyUT clientTooSlowPolicy{};
 
     auto deserializationSuccessful = serialized.extract(serverOptions.requestQueueCapacity,
                                                         serverOptions.nodeName,
@@ -50,7 +49,7 @@ ServerOptions::deserialize(const cxx::Serialization& serialized) noexcept
         || requestQueueFullPolicy > static_cast<QueueFullPolicyUT>(QueueFullPolicy::DISCARD_OLDEST_DATA)
         || clientTooSlowPolicy > static_cast<ClientTooSlowPolicyUT>(ConsumerTooSlowPolicy::DISCARD_OLDEST_DATA))
     {
-        return err(cxx::Serialization::Error::DESERIALIZATION_FAILED);
+        return err(Serialization::Error::DESERIALIZATION_FAILED);
     }
 
     serverOptions.requestQueueFullPolicy = static_cast<QueueFullPolicy>(requestQueueFullPolicy);

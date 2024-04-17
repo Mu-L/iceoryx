@@ -19,11 +19,11 @@
 
 #include "iceoryx_posh/roudi/memory/memory_provider.hpp"
 
-#include "iceoryx_hoofs/internal/posix_wrapper/shared_memory_object.hpp"
 #include "iceoryx_posh/iceoryx_posh_types.hpp"
 #include "iox/expected.hpp"
 #include "iox/filesystem.hpp"
 #include "iox/optional.hpp"
+#include "iox/posix_shared_memory_object.hpp"
 #include "iox/string.hpp"
 
 #include <cstdint>
@@ -38,11 +38,13 @@ class PosixShmMemoryProvider : public MemoryProvider
   public:
     /// @brief Constructs a PosixShmMemoryProvider which can be used to request memory via MemoryBlocks
     /// @param [in] shmName is the name of the posix share memory
+    /// @param[in] domainId to tie the shared memory to
     /// @param [in] accessMode defines the read and write access to the memory
     /// @param [in] openMode defines the creation/open mode of the shared memory.
     PosixShmMemoryProvider(const ShmName_t& shmName,
-                           const posix::AccessMode accessMode,
-                           const posix::OpenMode openMode) noexcept;
+                           const DomainId domainId,
+                           const AccessMode accessMode,
+                           const OpenMode openMode) noexcept;
     ~PosixShmMemoryProvider() noexcept;
 
     PosixShmMemoryProvider(PosixShmMemoryProvider&&) = delete;
@@ -62,9 +64,10 @@ class PosixShmMemoryProvider : public MemoryProvider
 
   private:
     ShmName_t m_shmName;
-    posix::AccessMode m_accessMode{posix::AccessMode::READ_ONLY};
-    posix::OpenMode m_openMode{posix::OpenMode::OPEN_EXISTING};
-    optional<posix::SharedMemoryObject> m_shmObject;
+    const DomainId m_domainId;
+    AccessMode m_accessMode{AccessMode::READ_ONLY};
+    OpenMode m_openMode{OpenMode::OPEN_EXISTING};
+    optional<PosixSharedMemoryObject> m_shmObject;
 
     static constexpr access_rights SHM_MEMORY_PERMISSIONS =
         perms::owner_read | perms::owner_write | perms::group_read | perms::group_write;

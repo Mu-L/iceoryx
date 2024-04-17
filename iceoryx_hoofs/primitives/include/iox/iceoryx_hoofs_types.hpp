@@ -20,13 +20,12 @@
 /// @note since this file will be included by many other files, it should not include other header except
 /// iceoryx_platform or STL header
 
+#include "iceoryx_platform/logging.hpp"
+
 #include <cstdint>
 
 namespace iox
 {
-/// @todo iox-#1900 use std::byte with c++17
-using byte = uint8_t;
-
 // AXIVION Next Construct AutosarC++19_03-M2.10.1 : log is a sensible namespace for a logger; furthermore it is in the
 // iox namespace and when used as function the compiler will complain
 namespace log
@@ -34,13 +33,13 @@ namespace log
 /// @brief This enum defines the log levels used for logging.
 enum class LogLevel : uint8_t
 {
-    OFF = 0,
-    FATAL,
-    ERROR,
-    WARN,
-    INFO,
-    DEBUG,
-    TRACE
+    OFF = IceoryxPlatformLogLevel::IOX_PLATFORM_LOG_LEVEL_OFF,
+    FATAL = IceoryxPlatformLogLevel::IOX_PLATFORM_LOG_LEVEL_FATAL,
+    ERROR = IceoryxPlatformLogLevel::IOX_PLATFORM_LOG_LEVEL_ERROR,
+    WARN = IceoryxPlatformLogLevel::IOX_PLATFORM_LOG_LEVEL_WARN,
+    INFO = IceoryxPlatformLogLevel::IOX_PLATFORM_LOG_LEVEL_INFO,
+    DEBUG = IceoryxPlatformLogLevel::IOX_PLATFORM_LOG_LEVEL_DEBUG,
+    TRACE = IceoryxPlatformLogLevel::IOX_PLATFORM_LOG_LEVEL_TRACE,
 };
 
 /// @brief converts LogLevel into a string literal

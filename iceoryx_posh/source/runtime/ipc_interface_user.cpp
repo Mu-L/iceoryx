@@ -22,11 +22,13 @@ namespace iox
 namespace runtime
 {
 IpcInterfaceUser::IpcInterfaceUser(const RuntimeName_t& name,
+                                   const DomainId domainId,
+                                   const ResourceType resourceType,
                                    const uint64_t maxMessages,
                                    const uint64_t messageSize) noexcept
-    : IpcInterfaceBase(name, maxMessages, messageSize)
+    : IpcInterfaceBase(name, domainId, resourceType, maxMessages, messageSize)
 {
-    openIpcChannel(posix::IpcChannelSide::CLIENT);
+    openIpcChannel(PosixIpcChannelSide::CLIENT);
 }
 } // namespace runtime
 } // namespace iox

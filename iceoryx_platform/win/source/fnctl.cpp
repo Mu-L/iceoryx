@@ -14,12 +14,17 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include <io.h>
-
 #include "iceoryx_platform/fcntl.hpp"
 #include "iceoryx_platform/handle_translator.hpp"
+#include "iceoryx_platform/logging.hpp"
 #include "iceoryx_platform/win32_errorHandling.hpp"
 #include "iceoryx_platform/windows.hpp"
+
+#include <io.h>
+#include <share.h>
+#include <sys/stat.h>
+
+#include <sstream>
 
 int iox_open(const char* pathname, int flags, mode_t mode)
 {
@@ -42,7 +47,10 @@ int iox_ext_open(const char* pathname, int flags, mode_t mode)
 
     if (handle == INVALID_HANDLE_VALUE)
     {
-        fprintf(stderr, "unable to create file \"%s\"\n", pathname);
+        std::stringstream stream;
+        stream << "unable to create file \"" << pathname << "\"";
+        IOX_PLATFORM_LOG(IOX_PLATFORM_LOG_LEVEL_ERROR, stream.str().c_str());
+
         errno = EWOULDBLOCK;
         return -1;
     }
@@ -52,14 +60,14 @@ int iox_ext_open(const char* pathname, int flags, mode_t mode)
 
 int iox_fcntl2(int, int)
 {
-    fprintf(stderr, "%s is not implemented in windows!\n", __PRETTY_FUNCTION__);
+    IOX_PLATFORM_LOG(IOX_PLATFORM_LOG_LEVEL_ERROR, "'iox_fcntl2' is not implemented in windows!");
     errno = ENOSYS;
     return -1;
 }
 
 int iox_fcntl3(int, int, int)
 {
-    fprintf(stderr, "%s is not implemented in windows!\n", __PRETTY_FUNCTION__);
+    IOX_PLATFORM_LOG(IOX_PLATFORM_LOG_LEVEL_ERROR, "'iox_fcntl3' is not implemented in windows!");
     errno = ENOSYS;
     return -1;
 }

@@ -17,7 +17,10 @@
 
 #include "iceoryx_posh/roudi/memory/posix_shm_memory_provider.hpp"
 
-#include "iceoryx_hoofs/internal/posix_wrapper/system_configuration.hpp"
+#include "iceoryx_posh/iceoryx_posh_types.hpp"
+#include "iceoryx_posh/internal/popo/building_blocks/unique_port_id.hpp"
+#include "iox/detail/convert.hpp"
+#include "iox/detail/system_configuration.hpp"
 #include "iox/logging.hpp"
 
 #include "iceoryx_platform/signal.hpp"
@@ -30,9 +33,11 @@ namespace roudi
 constexpr access_rights PosixShmMemoryProvider::SHM_MEMORY_PERMISSIONS;
 
 PosixShmMemoryProvider::PosixShmMemoryProvider(const ShmName_t& shmName,
-                                               const posix::AccessMode accessMode,
-                                               const posix::OpenMode openMode) noexcept
+                                               const DomainId domainId,
+                                               const AccessMode accessMode,
+                                               const OpenMode openMode) noexcept
     : m_shmName(shmName)
+    , m_domainId(domainId)
     , m_accessMode(accessMode)
     , m_openMode(openMode)
 {
@@ -42,20 +47,20 @@ PosixShmMemoryProvider::~PosixShmMemoryProvider() noexcept
 {
     if (isAvailable())
     {
-        destroy().or_else([](auto) { IOX_LOG(WARN) << "failed to cleanup POSIX shared memory provider resources"; });
+        destroy().or_else([](auto) { IOX_LOG(WARN, "failed to cleanup POSIX shared memory provider resources"); });
     }
 }
 
 expected<void*, MemoryProviderError> PosixShmMemoryProvider::createMemory(const uint64_t size,
                                                                           const uint64_t alignment) noexcept
 {
-    if (alignment > internal::pageSize())
+    if (alignment > detail::pageSize())
     {
         return err(MemoryProviderError::MEMORY_ALIGNMENT_EXCEEDS_PAGE_SIZE);
     }
 
-    if (!posix::SharedMemoryObjectBuilder()
-             .name(m_shmName)
+    if (!PosixSharedMemoryObjectBuilder()
+             .name(concatenate(iceoryxResourcePrefix(m_domainId, ResourceType::ICEORYX_DEFINED), m_shmName))
              .memorySizeInBytes(size)
              .accessMode(m_accessMode)
              .openMode(m_openMode)

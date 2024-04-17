@@ -16,12 +16,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "iceoryx_posh/internal/runtime/ipc_runtime_interface.hpp"
-#include "iceoryx_dust/cxx/convert.hpp"
-#include "iceoryx_dust/cxx/std_string_support.hpp"
-#include "iceoryx_hoofs/posix_wrapper/posix_access_rights.hpp"
-#include "iceoryx_posh/error_handling/error_handling.hpp"
+#include "iceoryx_posh/internal/posh_error_reporting.hpp"
 #include "iceoryx_posh/version/version_info.hpp"
+#include "iox/assertions.hpp"
+#include "iox/detail/convert.hpp"
 #include "iox/into.hpp"
+#include "iox/posix_user.hpp"
+#include "iox/std_string_support.hpp"
 
 #include <thread>
 
@@ -29,17 +30,23 @@ namespace iox
 {
 namespace runtime
 {
-IpcRuntimeInterface::IpcRuntimeInterface(const RuntimeName_t& roudiName,
-                                         const RuntimeName_t& runtimeName,
-                                         const units::Duration roudiWaitingTimeout) noexcept
-    : m_runtimeName(runtimeName)
-    , m_RoudiIpcInterface(roudiName)
+expected<IpcRuntimeInterface, IpcRuntimeInterfaceError> IpcRuntimeInterface::create(
+    const RuntimeName_t& runtimeName, const DomainId domainId, const units::Duration roudiWaitingTimeout) noexcept
 {
-    m_AppIpcInterface.emplace(runtimeName);
-    if (!m_AppIpcInterface->isInitialized())
+    if (runtimeName.empty())
     {
-        errorHandler(PoshError::IPC_INTERFACE__UNABLE_TO_CREATE_APPLICATION_CHANNEL);
-        return;
+        IOX_LOG(DEBUG, "The runtime name must not be empty!");
+        return err(IpcRuntimeInterfaceError::CANNOT_CREATE_APPLICATION_CHANNEL);
+    }
+
+    MgmtShmCharacteristics mgmtShmCharacteristics;
+
+    auto roudiIpcInterface = IpcInterfaceUser(roudi::IPC_CHANNEL_ROUDI_NAME, domainId, ResourceType::ICEORYX_DEFINED);
+
+    auto appIpcInterface = IpcInterfaceCreator::create(runtimeName, domainId, ResourceType::USER_DEFINED);
+    if (appIpcInterface.has_error() || !appIpcInterface->isInitialized())
+    {
+        return err(IpcRuntimeInterfaceError::CANNOT_CREATE_APPLICATION_CHANNEL);
     }
 
     deadline_timer timer(roudiWaitingTimeout);
@@ -54,12 +61,15 @@ IpcRuntimeInterface::IpcRuntimeInterface(const RuntimeName_t& roudiName,
 
     int64_t transmissionTimestamp{0};
     auto regState = RegState::WAIT_FOR_ROUDI;
-    while (!timer.hasExpired() && regState != RegState::FINISHED)
+    auto oldRegState = RegState::WAIT_FOR_ROUDI;
+    do
     {
-        if (!m_RoudiIpcInterface.isInitialized() || !m_RoudiIpcInterface.ipcChannelMapsToFile())
+        oldRegState = regState;
+
+        if (!roudiIpcInterface.isInitialized() || !roudiIpcInterface.ipcChannelMapsToFile())
         {
-            IOX_LOG(DEBUG) << "reopen RouDi's IPC channel!";
-            m_RoudiIpcInterface.reopen();
+            IOX_LOG(DEBUG, "reopen RouDi's IPC channel!");
+            roudiIpcInterface.reopen();
             regState = RegState::WAIT_FOR_ROUDI;
         }
 
@@ -67,8 +77,8 @@ IpcRuntimeInterface::IpcRuntimeInterface(const RuntimeName_t& roudiName,
         {
         case RegState::WAIT_FOR_ROUDI:
         {
-            waitForRoudi(timer);
-            if (m_RoudiIpcInterface.isInitialized())
+            waitForRoudi(roudiIpcInterface, timer);
+            if (roudiIpcInterface.isInitialized())
             {
                 regState = RegState::SEND_REGISTER_REQUEST;
             }
@@ -89,13 +99,13 @@ IpcRuntimeInterface::IpcRuntimeInterface(const RuntimeName_t& roudiName,
 
             IpcMessage sendBuffer;
             int pid = getpid();
-            cxx::Expects(pid >= 0);
-            sendBuffer << IpcMessageTypeToString(IpcMessageType::REG) << m_runtimeName << cxx::convert::toString(pid)
-                       << cxx::convert::toString(posix::PosixUser::getUserOfCurrentProcess().getID())
-                       << cxx::convert::toString(transmissionTimestamp)
-                       << static_cast<cxx::Serialization>(version::VersionInfo::getCurrentVersion()).toString();
+            IOX_ENFORCE(pid >= 0, "'getpid' must always return a positive number");
+            sendBuffer << IpcMessageTypeToString(IpcMessageType::REG) << runtimeName << convert::toString(pid)
+                       << convert::toString(PosixUser::getUserOfCurrentProcess().getID())
+                       << convert::toString(transmissionTimestamp)
+                       << static_cast<Serialization>(version::VersionInfo::getCurrentVersion()).toString();
 
-            bool successfullySent = m_RoudiIpcInterface.timedSend(sendBuffer, 100_ms);
+            bool successfullySent = roudiIpcInterface.timedSend(sendBuffer, 100_ms);
 
             if (successfullySent)
             {
@@ -108,11 +118,11 @@ IpcRuntimeInterface::IpcRuntimeInterface(const RuntimeName_t& roudiName,
             break;
         }
         case RegState::WAIT_FOR_REGISTER_ACK:
-            if (waitForRegAck(transmissionTimestamp) == RegAckResult::SUCCESS)
+            if (waitForRegAck(transmissionTimestamp, *appIpcInterface, mgmtShmCharacteristics) == RegAckResult::SUCCESS)
             {
                 regState = RegState::FINISHED;
             }
-            else
+            else if (!timer.hasExpired())
             {
                 regState = RegState::WAIT_FOR_ROUDI;
             }
@@ -121,84 +131,83 @@ IpcRuntimeInterface::IpcRuntimeInterface(const RuntimeName_t& roudiName,
             // nothing to do, move along
             break;
         }
-    }
+    } while ((!timer.hasExpired() || regState != oldRegState) && regState != RegState::FINISHED);
 
-    if (regState != RegState::FINISHED)
-    {
-        m_AppIpcInterface.reset();
-    }
     switch (regState)
     {
     case RegState::WAIT_FOR_ROUDI:
-        IOX_LOG(FATAL) << "Timeout registering at RouDi. Is RouDi running?";
-        errorHandler(PoshError::IPC_INTERFACE__REG_ROUDI_NOT_AVAILABLE);
-        break;
+        IOX_LOG(DEBUG, "Timeout while waiting for RouDi");
+        return err(IpcRuntimeInterfaceError::TIMEOUT_WAITING_FOR_ROUDI);
     case RegState::SEND_REGISTER_REQUEST:
-        errorHandler(PoshError::IPC_INTERFACE__REG_UNABLE_TO_WRITE_TO_ROUDI_CHANNEL);
-        break;
+        IOX_LOG(DEBUG, "Sending registration request to RouDi failed");
+        return err(IpcRuntimeInterfaceError::SENDING_REQUEST_TO_ROUDI_FAILED);
     case RegState::WAIT_FOR_REGISTER_ACK:
-        errorHandler(PoshError::IPC_INTERFACE__REG_ACK_NO_RESPONSE);
+        IOX_LOG(DEBUG, "RouDi did not respond to the registration request");
+        return err(IpcRuntimeInterfaceError::NO_RESPONSE_FROM_ROUDI);
         break;
     case RegState::FINISHED:
         // nothing to do, move along
         break;
     }
+
+    return ok(IpcRuntimeInterface{
+        std::move(appIpcInterface.value()), std::move(roudiIpcInterface), std::move(mgmtShmCharacteristics)});
 }
 
-bool IpcRuntimeInterface::sendKeepalive() noexcept
+IpcRuntimeInterface::IpcRuntimeInterface(IpcInterfaceCreator&& appIpcInterface,
+                                         IpcInterfaceUser&& roudiIpcInterface,
+                                         MgmtShmCharacteristics&& mgmtShmCharacteristics) noexcept
+    : m_AppIpcInterface(std::move(appIpcInterface))
+    , m_RoudiIpcInterface(std::move(roudiIpcInterface))
+    , m_mgmtShmCharacteristics(std::move(mgmtShmCharacteristics))
 {
-    return (m_sendKeepalive) ? m_RoudiIpcInterface.send(
-               {IpcMessageTypeToString(IpcMessageType::KEEPALIVE), into<std::string>(m_runtimeName)})
-                             : true;
 }
 
 UntypedRelativePointer::offset_t IpcRuntimeInterface::getSegmentManagerAddressOffset() const noexcept
 {
-    cxx::Ensures(m_segmentManagerAddressOffset.has_value()
-                 && "No segment manager available! Should have been fetched in the c'tor");
-    return m_segmentManagerAddressOffset.value();
+    return m_mgmtShmCharacteristics.segmentManagerAddressOffset;
 }
 
 bool IpcRuntimeInterface::sendRequestToRouDi(const IpcMessage& msg, IpcMessage& answer) noexcept
 {
     if (!m_RoudiIpcInterface.send(msg))
     {
-        IOX_LOG(ERROR) << "Could not send request via RouDi IPC channel interface.\n";
+        IOX_LOG(ERROR, "Could not send request via RouDi IPC channel interface.\n");
         return false;
     }
 
-    if (!m_AppIpcInterface->receive(answer))
+    if (!m_AppIpcInterface.receive(answer))
     {
-        IOX_LOG(ERROR) << "Could not receive request via App IPC channel interface.\n";
+        IOX_LOG(ERROR, "Could not receive request via App IPC channel interface.\n");
         return false;
     }
 
     return true;
 }
 
-size_t IpcRuntimeInterface::getShmTopicSize() noexcept
+uint64_t IpcRuntimeInterface::getShmTopicSize() noexcept
 {
-    return m_shmTopicSize;
+    return m_mgmtShmCharacteristics.shmTopicSize;
 }
 
-void IpcRuntimeInterface::waitForRoudi(deadline_timer& timer) noexcept
+void IpcRuntimeInterface::waitForRoudi(IpcInterfaceUser& roudiIpcInterface, deadline_timer& timer) noexcept
 {
     bool printWaitingWarning = true;
     bool printFoundMessage = false;
     uint32_t numberOfRemainingFastPolls{10};
-    while (!timer.hasExpired() && !m_RoudiIpcInterface.isInitialized())
+    while (!timer.hasExpired() && !roudiIpcInterface.isInitialized())
     {
-        m_RoudiIpcInterface.reopen();
+        roudiIpcInterface.reopen();
 
-        if (m_RoudiIpcInterface.isInitialized())
+        if (roudiIpcInterface.isInitialized())
         {
-            IOX_LOG(DEBUG) << "RouDi IPC Channel found!";
+            IOX_LOG(DEBUG, "RouDi IPC Channel found!");
             break;
         }
 
         if (printWaitingWarning)
         {
-            IOX_LOG(WARN) << "RouDi not found - waiting ...";
+            IOX_LOG(WARN, "RouDi not found - waiting ...");
             printWaitingWarning = false;
             printFoundMessage = true;
         }
@@ -213,13 +222,16 @@ void IpcRuntimeInterface::waitForRoudi(deadline_timer& timer) noexcept
         }
     }
 
-    if (printFoundMessage && m_RoudiIpcInterface.isInitialized())
+    if (printFoundMessage && roudiIpcInterface.isInitialized())
     {
-        IOX_LOG(WARN) << "... RouDi found.";
+        IOX_LOG(WARN, "... RouDi found.");
     }
 }
 
-IpcRuntimeInterface::RegAckResult IpcRuntimeInterface::waitForRegAck(int64_t transmissionTimestamp) noexcept
+IpcRuntimeInterface::RegAckResult
+IpcRuntimeInterface::waitForRegAck(int64_t transmissionTimestamp,
+                                   IpcInterfaceCreator& appIpcInterface,
+                                   MgmtShmCharacteristics& mgmtShmCharacteristics) noexcept
 {
     // wait for the register ack from the RouDi daemon. If we receive another response we do a retry
     constexpr size_t MAX_RETRY_COUNT = 3;
@@ -229,7 +241,7 @@ IpcRuntimeInterface::RegAckResult IpcRuntimeInterface::waitForRegAck(int64_t tra
         using namespace units::duration_literals;
         IpcMessage receiveBuffer;
         // wait for IpcMessageType::REG_ACK from RouDi for 1 seconds
-        if (m_AppIpcInterface->timedReceive(1_s, receiveBuffer))
+        if (appIpcInterface.timedReceive(1_s, receiveBuffer))
         {
             std::string cmd = receiveBuffer.getElementAtIndex(0U);
 
@@ -238,31 +250,59 @@ IpcRuntimeInterface::RegAckResult IpcRuntimeInterface::waitForRegAck(int64_t tra
                 constexpr uint32_t REGISTER_ACK_PARAMETERS = 6U;
                 if (receiveBuffer.getNumberOfElements() != REGISTER_ACK_PARAMETERS)
                 {
-                    errorHandler(PoshError::IPC_INTERFACE__REG_ACK_INVALIG_NUMBER_OF_PARAMS);
+                    IOX_REPORT_FATAL(PoshError::IPC_INTERFACE__REG_ACK_INVALIG_NUMBER_OF_PARAMS);
                 }
 
                 // read out the shared memory base address and save it
-                iox::cxx::convert::fromString(receiveBuffer.getElementAtIndex(1U).c_str(), m_shmTopicSize);
-                UntypedRelativePointer::offset_t offset{0U};
-                iox::cxx::convert::fromString(receiveBuffer.getElementAtIndex(2U).c_str(), offset);
-                m_segmentManagerAddressOffset.emplace(offset);
-
+                UntypedRelativePointer::offset_t segmentManagerOffset{UntypedRelativePointer::NULL_POINTER_OFFSET};
+                UntypedRelativePointer::offset_t heartbeatOffset{UntypedRelativePointer::NULL_POINTER_OFFSET};
                 int64_t receivedTimestamp{0U};
-                cxx::convert::fromString(receiveBuffer.getElementAtIndex(3U).c_str(), receivedTimestamp);
-                cxx::convert::fromString(receiveBuffer.getElementAtIndex(4U).c_str(), m_segmentId);
-                cxx::convert::fromString(receiveBuffer.getElementAtIndex(5U).c_str(), m_sendKeepalive);
+
+                auto topic_size_result =
+                    iox::convert::from_string<uint64_t>(receiveBuffer.getElementAtIndex(1U).c_str());
+                auto segment_manager_offset_result =
+                    iox::convert::from_string<uintptr_t>(receiveBuffer.getElementAtIndex(2U).c_str());
+                auto recv_timestamp_result =
+                    iox::convert::from_string<int64_t>(receiveBuffer.getElementAtIndex(3U).c_str());
+                auto segment_id_result =
+                    iox::convert::from_string<uint64_t>(receiveBuffer.getElementAtIndex(4U).c_str());
+                auto heartbeat_offset_result =
+                    iox::convert::from_string<uintptr_t>(receiveBuffer.getElementAtIndex(5U).c_str());
+
+                // validate conversion results
+                if (!topic_size_result.has_value() || !segment_manager_offset_result.has_value()
+                    || !recv_timestamp_result.has_value() || !segment_id_result.has_value()
+                    || !heartbeat_offset_result.has_value())
+                {
+                    return RegAckResult::MALFORMED_RESPONSE;
+                }
+
+                // assign conversion results
+                mgmtShmCharacteristics.shmTopicSize = topic_size_result.value();
+                mgmtShmCharacteristics.segmentId = segment_id_result.value();
+                segmentManagerOffset = segment_manager_offset_result.value();
+                receivedTimestamp = recv_timestamp_result.value();
+                heartbeatOffset = heartbeat_offset_result.value();
+
+                mgmtShmCharacteristics.segmentManagerAddressOffset = segmentManagerOffset;
+
+                if (heartbeatOffset != UntypedRelativePointer::NULL_POINTER_OFFSET)
+                {
+                    mgmtShmCharacteristics.heartbeatAddressOffset = heartbeatOffset;
+                }
+
                 if (transmissionTimestamp == receivedTimestamp)
                 {
                     return RegAckResult::SUCCESS;
                 }
                 else
                 {
-                    IOX_LOG(WARN) << "Received a REG_ACK with an outdated timestamp!";
+                    IOX_LOG(WARN, "Received a REG_ACK with an outdated timestamp!");
                 }
             }
             else
             {
-                IOX_LOG(ERROR) << "Wrong response received " << receiveBuffer.getMessage();
+                IOX_LOG(ERROR, "Wrong response received " << receiveBuffer.getMessage());
             }
         }
     }
@@ -272,7 +312,13 @@ IpcRuntimeInterface::RegAckResult IpcRuntimeInterface::waitForRegAck(int64_t tra
 
 uint64_t IpcRuntimeInterface::getSegmentId() const noexcept
 {
-    return m_segmentId;
+    return m_mgmtShmCharacteristics.segmentId;
 }
+
+optional<UntypedRelativePointer::offset_t> IpcRuntimeInterface::getHeartbeatAddressOffset() const noexcept
+{
+    return m_mgmtShmCharacteristics.heartbeatAddressOffset;
+}
+
 } // namespace runtime
 } // namespace iox

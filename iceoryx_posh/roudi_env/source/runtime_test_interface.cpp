@@ -17,6 +17,7 @@
 
 #include "iceoryx_posh/roudi_env/runtime_test_interface.hpp"
 #include "iceoryx_posh/internal/runtime/posh_runtime_impl.hpp"
+#include "iox/assertions.hpp"
 
 namespace iox
 {
@@ -36,9 +37,9 @@ RuntimeTestInterface::RuntimeTestInterface()
 {
     std::lock_guard<std::mutex> lock(RuntimeTestInterface::s_runtimeAccessMutex);
 
-    iox::cxx::Expects(PoshRuntime::getRuntimeFactory() == PoshRuntime::defaultRuntimeFactory
-                      && "The RuntimeTestInterface can only be used in combination with the "
-                         "PoshRuntime::defaultRuntimeFactory! Someone else already switched the factory!");
+    IOX_ENFORCE(PoshRuntime::getRuntimeFactory() == PoshRuntime::defaultRuntimeFactory,
+                "The RuntimeTestInterface can only be used in combination with the "
+                "PoshRuntime::defaultRuntimeFactory! Someone else already switched the factory!");
 
     PoshRuntime::setRuntimeFactory(RuntimeTestInterface::runtimeFactoryGetInstance);
 }
@@ -100,8 +101,10 @@ PoshRuntime& RuntimeTestInterface::runtimeFactoryGetInstance(optional<const Runt
     }
 
     bool nameIsNullopt{!name.has_value()};
-    bool invalidGetRuntimeAccess{RuntimeTestInterface::t_activeRuntime == nullptr && nameIsNullopt};
-    cxx::Expects(!invalidGetRuntimeAccess);
+    if (RuntimeTestInterface::t_activeRuntime == nullptr && nameIsNullopt)
+    {
+        IOX_PANIC("Invalid runtime access");
+    }
 
     if (RuntimeTestInterface::t_activeRuntime != nullptr && nameIsNullopt)
     {
@@ -115,13 +118,20 @@ PoshRuntime& RuntimeTestInterface::runtimeFactoryGetInstance(optional<const Runt
     }
     else
     {
-        auto runtimeImpl = new runtime::PoshRuntimeImpl(name, runtime::RuntimeLocation::SAME_PROCESS_LIKE_ROUDI);
+        auto runtimeImpl =
+            new runtime::PoshRuntimeImpl(name, DEFAULT_DOMAIN_ID, runtime::RuntimeLocation::SAME_PROCESS_LIKE_ROUDI);
         RuntimeTestInterface::s_runtimes.insert({*name.value(), runtimeImpl});
 
         RuntimeTestInterface::t_activeRuntime = runtimeImpl;
     }
 
     return *RuntimeTestInterface::t_activeRuntime;
+}
+
+uint64_t RuntimeTestInterface::activeRuntimeCount() noexcept
+{
+    std::lock_guard<std::mutex> lock(RuntimeTestInterface::s_runtimeAccessMutex);
+    return RuntimeTestInterface::s_runtimes.size();
 }
 
 } // namespace roudi_env

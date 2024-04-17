@@ -15,14 +15,14 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "iceoryx_hoofs/error_handling/error_handling.hpp"
-#include "iceoryx_hoofs/testing/fatal_failure.hpp"
+#include "iox/detail/hoofs_error_reporting.hpp"
 #include "iox/expected.hpp"
 #include "iox/string.hpp"
+
+#include "iceoryx_hoofs/testing/fatal_failure.hpp"
 #include "test.hpp"
 
 using namespace ::testing;
-using namespace ::iox::cxx;
 using namespace ::iox;
 using namespace ::iox::testing;
 
@@ -458,6 +458,132 @@ TEST_F(expected_test, CreateWithErrFreeFunctionByForwardingIsSuccessful)
     EXPECT_THAT(sut.error().m_b, Eq(B));
 }
 
+TEST_F(expected_test, CopyConstructorWorksWithValueContent)
+{
+    ::testing::Test::RecordProperty("TEST_ID", "71ce4717-bf77-47ea-8ed9-3a890b13ce88");
+    constexpr int VALUE{455171};
+
+    expected<int, NonTrivialTestClass> sut = ok(VALUE);
+    expected<int, NonTrivialTestClass> sut_copy(sut);
+
+    ASSERT_THAT(sut.has_value(), Eq(true));
+    ASSERT_THAT(sut_copy.has_value(), Eq(true));
+
+    ASSERT_THAT(sut.value(), Eq(VALUE));
+    ASSERT_THAT(sut_copy.value(), Eq(VALUE));
+}
+
+TEST_F(expected_test, CopyConstructorWorksWithErrorContent)
+{
+    ::testing::Test::RecordProperty("TEST_ID", "e0be66c3-05fc-4030-92d0-8ad84111e86f");
+    constexpr int A{719122};
+    constexpr int B{700012};
+
+    expected<int, NonTrivialTestClass> sut = err<NonTrivialTestClass>(A, B);
+    expected<int, NonTrivialTestClass> sut_copy(sut);
+
+    ASSERT_THAT(sut.has_error(), Eq(true));
+    ASSERT_THAT(sut_copy.has_error(), Eq(true));
+
+    ASSERT_THAT(sut.error().m_a, Eq(A));
+    ASSERT_THAT(sut.error().m_b, Eq(B));
+    ASSERT_THAT(sut_copy.error().m_a, Eq(A));
+    ASSERT_THAT(sut_copy.error().m_b, Eq(B));
+}
+
+TEST_F(expected_test, MoveConstructorWorksWithValueContent)
+{
+    ::testing::Test::RecordProperty("TEST_ID", "8f188c06-6675-4e9b-bd72-28ea813cb149");
+    constexpr int VALUE{919155171};
+
+    expected<int, NonTrivialTestClass> sut = ok(VALUE);
+    expected<int, NonTrivialTestClass> sut_move(std::move(sut));
+
+    ASSERT_THAT(sut_move.has_value(), Eq(true));
+    ASSERT_THAT(sut_move.value(), Eq(VALUE));
+}
+
+TEST_F(expected_test, MoveConstructorWorksWithErrorContent)
+{
+    ::testing::Test::RecordProperty("TEST_ID", "c8eb14d0-fee4-474b-ab9a-33e834a47f19");
+    constexpr int A{7331};
+    constexpr int B{73391};
+
+    expected<int, NonTrivialTestClass> sut = err<NonTrivialTestClass>(A, B);
+    expected<int, NonTrivialTestClass> sut_move(std::move(sut));
+
+    ASSERT_THAT(sut_move.has_error(), Eq(true));
+    ASSERT_THAT(sut_move.error().m_a, Eq(A));
+    ASSERT_THAT(sut_move.error().m_b, Eq(B));
+}
+
+TEST_F(expected_test, CopyAssignmentWorksWithValueContent)
+{
+    ::testing::Test::RecordProperty("TEST_ID", "e16679e7-91cb-4e3c-869a-bdca338c4963");
+    constexpr int VALUE{333195171};
+
+    expected<int, NonTrivialTestClass> sut = ok(VALUE);
+    expected<int, NonTrivialTestClass> sut_copy = err<NonTrivialTestClass>(1, 2);
+
+    sut_copy = sut;
+
+    ASSERT_THAT(sut.has_value(), Eq(true));
+    ASSERT_THAT(sut_copy.has_value(), Eq(true));
+
+    ASSERT_THAT(sut.value(), Eq(VALUE));
+    ASSERT_THAT(sut_copy.value(), Eq(VALUE));
+}
+
+TEST_F(expected_test, CopyAssignmentWorksWithErrorContent)
+{
+    ::testing::Test::RecordProperty("TEST_ID", "66db5dea-8543-4ad0-9705-1c23ed316463");
+    constexpr int A{557331};
+    constexpr int B{5573391};
+
+    expected<int, NonTrivialTestClass> sut = err<NonTrivialTestClass>(A, B);
+    expected<int, NonTrivialTestClass> sut_copy = ok(1231);
+
+    sut_copy = sut;
+
+    ASSERT_THAT(sut.has_error(), Eq(true));
+    ASSERT_THAT(sut_copy.has_error(), Eq(true));
+
+    ASSERT_THAT(sut.error().m_a, Eq(A));
+    ASSERT_THAT(sut.error().m_b, Eq(B));
+    ASSERT_THAT(sut_copy.error().m_a, Eq(A));
+    ASSERT_THAT(sut_copy.error().m_b, Eq(B));
+}
+
+TEST_F(expected_test, MoveAssignmentWorksWithValueContent)
+{
+    ::testing::Test::RecordProperty("TEST_ID", "87ca60fe-7b29-4144-91fe-80ebfed644bd");
+    constexpr int VALUE{910001};
+
+    expected<int, NonTrivialTestClass> sut = ok(VALUE);
+    expected<int, NonTrivialTestClass> sut_move = err<NonTrivialTestClass>(1, 2);
+
+    sut_move = std::move(sut);
+
+    ASSERT_THAT(sut_move.has_value(), Eq(true));
+    ASSERT_THAT(sut_move.value(), Eq(VALUE));
+}
+
+TEST_F(expected_test, MoveAssignmentWorksWithErrorContent)
+{
+    ::testing::Test::RecordProperty("TEST_ID", "82691fe2-fd18-4b43-b926-e9e67699760e");
+    constexpr int A{9557431};
+    constexpr int B{95574391};
+
+    expected<int, NonTrivialTestClass> sut = err<NonTrivialTestClass>(A, B);
+    expected<int, NonTrivialTestClass> sut_move = ok(121);
+
+    sut_move = sut;
+
+    ASSERT_THAT(sut_move.has_error(), Eq(true));
+    ASSERT_THAT(sut_move.error().m_a, Eq(A));
+    ASSERT_THAT(sut_move.error().m_b, Eq(B));
+}
+
 TEST_F(expected_test, BoolOperatorReturnsError)
 {
     ::testing::Test::RecordProperty("TEST_ID", "f1e30651-a0e9-4c73-b2bf-57f36fc7eddf");
@@ -669,8 +795,7 @@ TEST_F(expected_test, AccessingValueOfLValueExpectedWhichContainsErrorWithArrowO
 
     expected<TestClass, TestError> sut = err(TestError::ERROR1);
 
-    IOX_EXPECT_FATAL_FAILURE<iox::HoofsError>([&] { IOX_DISCARD_RESULT(sut->m_a); },
-                                              iox::HoofsError::EXPECTS_ENSURES_FAILED);
+    IOX_EXPECT_FATAL_FAILURE([&] { IOX_DISCARD_RESULT(sut->m_a); }, iox::er::ENFORCE_VIOLATION);
 }
 
 TEST_F(expected_test, AccessingValueOfConstLValueExpectedWhichContainsErrorWithArrowOpLeadsToErrorHandlerCall)
@@ -679,8 +804,7 @@ TEST_F(expected_test, AccessingValueOfConstLValueExpectedWhichContainsErrorWithA
 
     const expected<TestClass, TestError> sut = err(TestError::ERROR1);
 
-    IOX_EXPECT_FATAL_FAILURE<iox::HoofsError>([&] { IOX_DISCARD_RESULT(sut->m_a); },
-                                              iox::HoofsError::EXPECTS_ENSURES_FAILED);
+    IOX_EXPECT_FATAL_FAILURE([&] { IOX_DISCARD_RESULT(sut->m_a); }, iox::er::ENFORCE_VIOLATION);
 }
 
 TEST_F(expected_test, AccessingValueOfLValueExpectedWhichContainsErrorWithDerefOpLeadsToErrorHandlerCall)
@@ -689,7 +813,7 @@ TEST_F(expected_test, AccessingValueOfLValueExpectedWhichContainsErrorWithDerefO
 
     expected<TestClass, TestError> sut = err(TestError::ERROR1);
 
-    IOX_EXPECT_FATAL_FAILURE<iox::HoofsError>([&] { *sut; }, iox::HoofsError::EXPECTS_ENSURES_FAILED);
+    IOX_EXPECT_FATAL_FAILURE([&] { *sut; }, iox::er::ENFORCE_VIOLATION);
 }
 
 TEST_F(expected_test, AccessingValueOfConstLValueExpectedWhichContainsErrorWithDerefOpLeadsToErrorHandlerCall)
@@ -698,7 +822,7 @@ TEST_F(expected_test, AccessingValueOfConstLValueExpectedWhichContainsErrorWithD
 
     const expected<TestClass, TestError> sut = err(TestError::ERROR1);
 
-    IOX_EXPECT_FATAL_FAILURE<iox::HoofsError>([&] { *sut; }, iox::HoofsError::EXPECTS_ENSURES_FAILED);
+    IOX_EXPECT_FATAL_FAILURE([&] { *sut; }, iox::er::ENFORCE_VIOLATION);
 }
 
 TEST_F(expected_test, AccessingValueOfLValueExpectedWhichContainsErrorLeadsToErrorHandlerCall)
@@ -707,7 +831,7 @@ TEST_F(expected_test, AccessingValueOfLValueExpectedWhichContainsErrorLeadsToErr
 
     expected<TestClass, TestError> sut = err(TestError::ERROR1);
 
-    IOX_EXPECT_FATAL_FAILURE<iox::HoofsError>([&] { sut.value(); }, iox::HoofsError::EXPECTS_ENSURES_FAILED);
+    IOX_EXPECT_FATAL_FAILURE([&] { sut.value(); }, iox::er::ENFORCE_VIOLATION);
 }
 
 TEST_F(expected_test, AccessingValueOfConstLValueExpectedWhichContainsErrorLeadsToErrorHandlerCall)
@@ -716,7 +840,7 @@ TEST_F(expected_test, AccessingValueOfConstLValueExpectedWhichContainsErrorLeads
 
     const expected<TestClass, TestError> sut = err(TestError::ERROR1);
 
-    IOX_EXPECT_FATAL_FAILURE<iox::HoofsError>([&] { sut.value(); }, iox::HoofsError::EXPECTS_ENSURES_FAILED);
+    IOX_EXPECT_FATAL_FAILURE([&] { sut.value(); }, iox::er::ENFORCE_VIOLATION);
 }
 
 TEST_F(expected_test, AccessingValueOfRValueExpectedWhichContainsErrorLeadsToErrorHandlerCall)
@@ -725,7 +849,7 @@ TEST_F(expected_test, AccessingValueOfRValueExpectedWhichContainsErrorLeadsToErr
 
     expected<TestClass, TestError> sut = err(TestError::ERROR1);
 
-    IOX_EXPECT_FATAL_FAILURE<iox::HoofsError>([&] { std::move(sut).value(); }, iox::HoofsError::EXPECTS_ENSURES_FAILED);
+    IOX_EXPECT_FATAL_FAILURE([&] { std::move(sut).value(); }, iox::er::ENFORCE_VIOLATION);
 }
 
 TEST_F(expected_test, AccessingErrorOfLValueExpectedWhichContainsValueLeadsToErrorHandlerCall)
@@ -735,7 +859,7 @@ TEST_F(expected_test, AccessingErrorOfLValueExpectedWhichContainsValueLeadsToErr
     constexpr int VALID_VALUE{42};
     expected<TestClass, TestError> sut = ok<TestClass>(VALID_VALUE, VALID_VALUE);
 
-    IOX_EXPECT_FATAL_FAILURE<iox::HoofsError>([&] { sut.error(); }, iox::HoofsError::EXPECTS_ENSURES_FAILED);
+    IOX_EXPECT_FATAL_FAILURE([&] { sut.error(); }, iox::er::ENFORCE_VIOLATION);
 }
 
 TEST_F(expected_test, AccessingErrorOfConstLValueExpectedWhichContainsValueLeadsToErrorHandlerCall)
@@ -745,7 +869,7 @@ TEST_F(expected_test, AccessingErrorOfConstLValueExpectedWhichContainsValueLeads
     constexpr int VALID_VALUE{42};
     const expected<TestClass, TestError> sut = ok<TestClass>(VALID_VALUE, VALID_VALUE);
 
-    IOX_EXPECT_FATAL_FAILURE<iox::HoofsError>([&] { sut.error(); }, iox::HoofsError::EXPECTS_ENSURES_FAILED);
+    IOX_EXPECT_FATAL_FAILURE([&] { sut.error(); }, iox::er::ENFORCE_VIOLATION);
 }
 
 TEST_F(expected_test, AccessingErrorOfRValueExpectedWhichContainsValueLeadsToErrorHandlerCall)
@@ -755,7 +879,7 @@ TEST_F(expected_test, AccessingErrorOfRValueExpectedWhichContainsValueLeadsToErr
     constexpr int VALID_VALUE{42};
     expected<TestClass, TestError> sut = ok<TestClass>(VALID_VALUE, VALID_VALUE);
 
-    IOX_EXPECT_FATAL_FAILURE<iox::HoofsError>([&] { std::move(sut).error(); }, iox::HoofsError::EXPECTS_ENSURES_FAILED);
+    IOX_EXPECT_FATAL_FAILURE([&] { std::move(sut).error(); }, iox::er::ENFORCE_VIOLATION);
 }
 
 TEST_F(expected_test, TwoVoidValueTypeExpectedWithEqualErrorAreEqual)

@@ -15,8 +15,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "iceoryx_dust/cxx/convert.hpp"
-#include "iceoryx_dust/posix_wrapper/signal_watcher.hpp"
 #include "iceoryx_posh/iceoryx_posh_config.hpp"
 #include "iceoryx_posh/iceoryx_posh_types.hpp"
 #include "iceoryx_posh/internal/roudi/roudi.hpp"
@@ -24,7 +22,9 @@
 #include "iceoryx_posh/popo/subscriber.hpp"
 #include "iceoryx_posh/roudi/iceoryx_roudi_components.hpp"
 #include "iceoryx_posh/runtime/posh_runtime_single_process.hpp"
+#include "iox/detail/convert.hpp"
 #include "iox/logging.hpp"
+#include "iox/signal_watcher.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -59,7 +59,7 @@ void publisher()
     //! [send]
     uint64_t counter{0};
     constexpr const char GREEN_RIGHT_ARROW[] = "\033[32m->\033[m ";
-    while (!iox::posix::hasTerminationRequested())
+    while (!iox::hasTerminationRequested())
     {
         publisher.loan().and_then([&](auto& sample) {
             sample->counter = counter++;
@@ -83,7 +83,7 @@ void subscriber()
 
     //! [receive]
     constexpr const char ORANGE_LEFT_ARROW[] = "\033[33m<-\033[m ";
-    while (!iox::posix::hasTerminationRequested())
+    while (!iox::hasTerminationRequested())
     {
         if (iox::SubscribeState::SUBSCRIBED == subscriber.getSubscriptionState())
         {
@@ -116,16 +116,13 @@ int main()
     //! [log level]
 
     //! [roudi config]
-    iox::RouDiConfig_t defaultRouDiConfig = iox::RouDiConfig_t().setDefaults();
-    iox::roudi::IceOryxRouDiComponents roudiComponents(defaultRouDiConfig);
+    iox::IceoryxConfig config = iox::IceoryxConfig().setDefaults();
+    config.sharesAddressSpaceWithApplications = true;
+    iox::roudi::IceOryxRouDiComponents roudiComponents(config);
     //! [roudi config]
 
     //! [roudi]
-    constexpr bool TERMINATE_APP_IN_ROUDI_DTOR_FLAG = false;
-    iox::roudi::RouDi roudi(
-        roudiComponents.rouDiMemoryManager,
-        roudiComponents.portManager,
-        iox::roudi::RouDi::RoudiStartupParameters{iox::roudi::MonitoringMode::OFF, TERMINATE_APP_IN_ROUDI_DTOR_FLAG});
+    iox::roudi::RouDi roudi(roudiComponents.rouDiMemoryManager, roudiComponents.portManager, config);
     //! [roudi]
 
     // create a single process runtime for inter thread communication
@@ -136,7 +133,7 @@ int main()
     //! [run]
     std::thread publisherThread(publisher), subscriberThread(subscriber);
 
-    iox::posix::waitForTerminationRequest();
+    iox::waitForTerminationRequest();
 
     publisherThread.join();
     subscriberThread.join();

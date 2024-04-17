@@ -14,11 +14,11 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "iceoryx_hoofs/posix_wrapper/signal_handler.hpp"
 #include "iceoryx_posh/popo/untyped_subscriber.hpp"
 #include "iceoryx_posh/popo/user_trigger.hpp"
 #include "iceoryx_posh/popo/wait_set.hpp"
 #include "iceoryx_posh/runtime/posh_runtime.hpp"
+#include "iox/signal_handler.hpp"
 #include "topic_data.hpp"
 
 #include <chrono>
@@ -34,7 +34,7 @@ using WaitSet = iox::popo::WaitSet<NUMBER_OF_SUBSCRIBERS>;
 
 volatile WaitSet* waitsetSigHandlerAccess{nullptr};
 
-static void sigHandler(int f_sig IOX_MAYBE_UNUSED)
+static void sigHandler(int f_sig [[maybe_unused]])
 {
     keepRunning = false;
     if (waitsetSigHandlerAccess)
@@ -69,9 +69,9 @@ int main()
 {
     // register sigHandler
     auto signalIntGuard =
-        iox::posix::registerSignalHandler(iox::posix::Signal::INT, sigHandler).expect("failed to register SIGINT");
+        iox::registerSignalHandler(iox::PosixSignal::INT, sigHandler).expect("failed to register SIGINT");
     auto signalTermGuard =
-        iox::posix::registerSignalHandler(iox::posix::Signal::TERM, sigHandler).expect("failed to register SIGTERM");
+        iox::registerSignalHandler(iox::PosixSignal::TERM, sigHandler).expect("failed to register SIGTERM");
 
     iox::runtime::PoshRuntime::initRuntime("iox-cpp-waitset-gateway");
 
@@ -90,8 +90,8 @@ int main()
         subscriberVector.emplace_back(iox::capro::ServiceDescription{"Radar", "FrontLeft", "Counter"});
         auto& subscriber = subscriberVector.back();
 
-        /// important: the user has to ensure that the contextData (sumOfAllSamples) lives as long as
-        ///            the subscriber with its callback is attached to the listener
+        /// important: the user has to ensure that the 'contextData' (here 'sumOfAllSamples') lives as long as
+        ///            the subscriber with its callback when attached to the 'waitset'
         waitset
             .attachEvent(subscriber,
                          iox::popo::SubscriberEvent::DATA_RECEIVED,

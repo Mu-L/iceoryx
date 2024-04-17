@@ -16,13 +16,16 @@
 #ifndef IOX_HOOFS_CXX_FUNCTIONAL_INTERFACE_HPP
 #define IOX_HOOFS_CXX_FUNCTIONAL_INTERFACE_HPP
 
+#include "iox/detail/deprecation_marker.hpp"
 #include "iox/functional_interface.hpp"
+
+IOX_DEPRECATED_HEADER_SINCE(3, "Please include 'iox/functional_interface.hpp' instead.")
+
+// clang-format off
 
 namespace iox
 {
-/// @todo iox-#1593 Deprecate include
-/// [[deprecated("Deprecated in 3.0, removed in 4.0, please include 'iox/functional_interface.hpp' instead")]]
-namespace cxx
+namespace IOX_DEPRECATED_SINCE(3, "Please use the 'iox' namespace directly and the corresponding header.") cxx
 {
 namespace internal
 {
@@ -62,5 +65,7 @@ using iox::FunctionalInterface;
 
 } // namespace cxx
 } // namespace iox
+
+// clang-format on
 
 #endif

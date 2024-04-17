@@ -14,7 +14,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "iceoryx_hoofs/posix_wrapper/posix_access_rights.hpp"
 #include "iceoryx_hoofs/testing/watch_dog.hpp"
 #include "iceoryx_platform/types.hpp"
 #include "iceoryx_posh/iceoryx_posh_types.hpp"
@@ -23,18 +22,19 @@
 #include "iceoryx_posh/mepoo/mepoo_config.hpp"
 #include "iceoryx_posh/roudi/memory/iceoryx_roudi_memory_manager.hpp"
 #include "iceoryx_posh/roudi/memory/roudi_memory_interface.hpp"
-#include "iceoryx_posh/roudi_env/minimal_roudi_config.hpp"
+#include "iceoryx_posh/roudi_env/minimal_iceoryx_config.hpp"
 #include "iceoryx_posh/version/compatibility_check_level.hpp"
+#include "iox/posix_user.hpp"
 #include "iox/string.hpp"
 #include "test.hpp"
 
 namespace
 {
 using namespace ::testing;
+using namespace iox;
 using namespace iox::roudi;
 using namespace iox::popo;
 using namespace iox::runtime;
-using namespace iox::posix;
 using namespace iox::roudi_env;
 using namespace iox::version;
 
@@ -43,11 +43,11 @@ class ProcessManager_test : public Test
   public:
     void SetUp() override
     {
-        m_roudiMemoryManager = std::make_unique<IceOryxRouDiMemoryManager>(MinimalRouDiConfigBuilder().create());
+        m_roudiMemoryManager = std::make_unique<IceOryxRouDiMemoryManager>(MinimalIceoryxConfigBuilder().create());
         EXPECT_FALSE(m_roudiMemoryManager->createAndAnnounceMemory().has_error());
         m_portManager = std::make_unique<PortManager>(m_roudiMemoryManager.get());
         CompatibilityCheckLevel m_compLevel{CompatibilityCheckLevel::OFF};
-        m_sut = std::make_unique<ProcessManager>(*m_roudiMemoryManager, *m_portManager, m_compLevel);
+        m_sut = std::make_unique<ProcessManager>(*m_roudiMemoryManager, *m_portManager, DEFAULT_DOMAIN_ID, m_compLevel);
         m_sut->initIntrospection(&m_processIntrospection);
     }
 
@@ -57,11 +57,13 @@ class ProcessManager_test : public Test
 
     const iox::RuntimeName_t m_processname{"TestProcess"};
     const uint32_t m_pid{42U};
-    PosixUser m_user{iox::posix::PosixUser::getUserOfCurrentProcess().getName()};
+    PosixUser m_user{PosixUser::getUserOfCurrentProcess().getName()};
     const bool m_isMonitored{true};
     VersionInfo m_versionInfo{42U, 42U, 42U, 42U, "Foo", "Bar"};
 
-    IpcInterfaceCreator m_processIpcInterface{m_processname};
+    IpcInterfaceCreator m_processIpcInterface{
+        IpcInterfaceCreator::create(m_processname, DEFAULT_DOMAIN_ID, ResourceType::USER_DEFINED)
+            .expect("This should never fail")};
     ProcessIntrospectionType m_processIntrospection;
 
     std::unique_ptr<IceOryxRouDiMemoryManager> m_roudiMemoryManager{nullptr};
@@ -141,7 +143,7 @@ TEST_F(ProcessManager_test, HandleProcessShutdownPreparationRequestWorks)
     ::testing::Test::RecordProperty("TEST_ID", "741669ec-111b-494b-b243-d28510b07782");
     m_sut->registerProcess(m_processname, m_pid, m_user, m_isMonitored, 1U, 1U, m_versionInfo);
 
-    auto user = iox::posix::PosixUser::getUserOfCurrentProcess();
+    auto user = PosixUser::getUserOfCurrentProcess();
     auto payloadDataSegmentMemoryManager = m_roudiMemoryManager->segmentManager()
                                                .value()
                                                ->getSegmentInformationWithWriteAccessForUser(user)

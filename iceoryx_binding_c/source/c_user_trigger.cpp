@@ -17,6 +17,7 @@
 
 #include "iceoryx_binding_c/internal/cpp2c_enum_translation.hpp"
 #include "iceoryx_posh/popo/user_trigger.hpp"
+#include "iox/assertions.hpp"
 #include "iox/logging.hpp"
 
 using namespace iox;
@@ -30,7 +31,7 @@ iox_user_trigger_t iox_user_trigger_init(iox_user_trigger_storage_t* self)
 {
     if (self == nullptr)
     {
-        IOX_LOG(WARN) << "user trigger initialization skipped - null pointer provided for iox_user_trigger_storage_t";
+        IOX_LOG(WARN, "user trigger initialization skipped - null pointer provided for iox_user_trigger_storage_t");
         return nullptr;
     }
     auto* me = new UserTrigger();
@@ -40,19 +41,19 @@ iox_user_trigger_t iox_user_trigger_init(iox_user_trigger_storage_t* self)
 
 void iox_user_trigger_deinit(iox_user_trigger_t const self)
 {
-    iox::cxx::Expects(self != nullptr);
+    IOX_ENFORCE(self != nullptr, "'self' must not be a 'nullptr'");
 
     delete self;
 }
 
 void iox_user_trigger_trigger(iox_user_trigger_t const self)
 {
-    iox::cxx::Expects(self != nullptr);
+    IOX_ENFORCE(self != nullptr, "'self' must not be a 'nullptr'");
     self->trigger();
 }
 
 bool iox_user_trigger_has_triggered(iox_user_trigger_t const self)
 {
-    iox::cxx::Expects(self != nullptr);
+    IOX_ENFORCE(self != nullptr, "'self' must not be a 'nullptr'");
     return self->hasTriggered();
 }

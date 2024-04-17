@@ -17,12 +17,13 @@
 #ifndef IOX_POSH_ROUDI_INTROSPECTION_PROCESS_INTROSPECTION_HPP
 #define IOX_POSH_ROUDI_INTROSPECTION_PROCESS_INTROSPECTION_HPP
 
-#include "iceoryx_hoofs/cxx/list.hpp"
-#include "iceoryx_hoofs/internal/concurrent/periodic_task.hpp"
 #include "iceoryx_posh/iceoryx_posh_types.hpp"
 #include "iceoryx_posh/internal/popo/ports/publisher_port_user.hpp"
 #include "iceoryx_posh/roudi/introspection_types.hpp"
+#include "iox/assertions.hpp"
+#include "iox/detail/periodic_task.hpp"
 #include "iox/function.hpp"
+#include "iox/list.hpp"
 
 #include <mutex>
 
@@ -59,16 +60,6 @@ class ProcessIntrospection
     /// @param[in] pid is the PID of the process to remove
     void removeProcess(const int pid) noexcept;
 
-    /// @brief This function is used to add a node to the process introspection
-    /// @param[in] runtimeName is the name of the proces
-    /// @param[in] nodeName is the name of the node to add
-    void addNode(const RuntimeName_t& runtimeName, const NodeName_t& node) noexcept;
-
-    /// @brief This function is used to remove a node from the process introspection
-    /// @param[in] runtimeName is the name of the proces
-    /// @param[in] nodeName is the name of the node to remove
-    void removeNode(const RuntimeName_t& runtimeName, const NodeName_t& node) noexcept;
-
     /// @brief This functions registers the POSH publisher port which is used
     ///        to send the data to the instrospcetion client
     /// @param publisherPort is the publisher port for transmission
@@ -94,15 +85,15 @@ class ProcessIntrospection
     void send() noexcept;
 
   private:
-    using ProcessList_t = cxx::list<ProcessIntrospectionData, MAX_PROCESS_NUMBER>;
+    using ProcessList_t = iox::list<ProcessIntrospectionData, MAX_PROCESS_NUMBER>;
     ProcessList_t m_processList;
     bool m_processListNewData{true}; // true because we want to have a valid field, even with an empty list
 
     std::mutex m_mutex;
 
     units::Duration m_sendInterval{units::Duration::fromSeconds(1U)};
-    concurrent::PeriodicTask<function<void()>> m_publishingTask{
-        concurrent::PeriodicTaskManualStart, "ProcessIntr", *this, &ProcessIntrospection::send};
+    concurrent::detail::PeriodicTask<function<void()>> m_publishingTask{
+        concurrent::detail::PeriodicTaskManualStart, "ProcessIntr", *this, &ProcessIntrospection::send};
 };
 
 /// @brief typedef for the templated process introspection class that is used by RouDi for the

@@ -15,9 +15,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "iceoryx_dust/cxx/convert.hpp"
-#include "iceoryx_dust/cxx/std_string_support.hpp"
-#include "iceoryx_hoofs/posix_wrapper/posix_access_rights.hpp"
 #include "iceoryx_hoofs/testing/watch_dog.hpp"
 #include "iceoryx_posh/iceoryx_posh_types.hpp"
 #include "iceoryx_posh/internal/capro/capro_message.hpp"
@@ -29,7 +26,10 @@
 #include "iceoryx_posh/popo/client_options.hpp"
 #include "iceoryx_posh/popo/server_options.hpp"
 #include "iceoryx_posh/roudi/memory/iceoryx_roudi_memory_manager.hpp"
-#include "iceoryx_posh/roudi_env/minimal_roudi_config.hpp"
+#include "iceoryx_posh/roudi_env/minimal_iceoryx_config.hpp"
+#include "iox/detail/convert.hpp"
+#include "iox/posix_user.hpp"
+#include "iox/std_string_support.hpp"
 
 #include "test.hpp"
 
@@ -41,7 +41,6 @@ namespace iox_test_roudi_portmanager
 using namespace ::testing;
 using namespace iox;
 using namespace iox::capro;
-using namespace iox::cxx;
 using namespace iox::popo;
 using namespace iox::roudi;
 using namespace iox::roudi_env;
@@ -86,11 +85,11 @@ class PortManager_test : public Test
         m_eventIdCounter = 0;
         // starting at {1,1,1}
 
-        m_roudiMemoryManager = new IceOryxRouDiMemoryManager(MinimalRouDiConfigBuilder().create());
+        m_roudiMemoryManager = new IceOryxRouDiMemoryManager(MinimalIceoryxConfigBuilder().create());
         EXPECT_FALSE(m_roudiMemoryManager->createAndAnnounceMemory().has_error());
         m_portManager = new PortManagerTester(m_roudiMemoryManager);
 
-        auto user = iox::posix::PosixUser::getUserOfCurrentProcess();
+        auto user = PosixUser::getUserOfCurrentProcess();
         auto segmentInfo =
             m_roudiMemoryManager->segmentManager().value()->getSegmentInformationWithWriteAccessForUser(user);
         ASSERT_TRUE(segmentInfo.m_memoryManager.has_value());
@@ -145,7 +144,7 @@ class PortManager_test : public Test
     {
         for (unsigned int i = 0; i < iox::MAX_INTERFACE_NUMBER; i++)
         {
-            auto newProcessName = runtimeName + iox::cxx::convert::toString(i);
+            auto newProcessName = runtimeName + iox::convert::toString(i);
             auto interfacePort = m_portManager->acquireInterfacePortData(iox::capro::Interfaces::INTERNAL,
                                                                          into<lossy<RuntimeName_t>>(newProcessName));
             ASSERT_NE(interfacePort, nullptr);
@@ -162,31 +161,12 @@ class PortManager_test : public Test
     {
         for (unsigned int i = 0; i < iox::MAX_NUMBER_OF_CONDITION_VARIABLES; i++)
         {
-            auto newProcessName = runtimeName + iox::cxx::convert::toString(i);
+            auto newProcessName = runtimeName + iox::convert::toString(i);
             auto condVar = m_portManager->acquireConditionVariableData(into<lossy<RuntimeName_t>>(newProcessName));
             ASSERT_FALSE(condVar.has_error());
             if (f)
             {
                 f(condVar.value());
-            }
-        }
-    }
-
-    void acquireMaxNumberOfNodes(std::string nodeName,
-                                 std::string runtimeName,
-                                 std::function<void(iox::runtime::NodeData*, std::string, std::string)> f =
-                                     std::function<void(iox::runtime::NodeData*, std::string, std::string)>())
-    {
-        for (unsigned int i = 0U; i < iox::MAX_NODE_NUMBER; i++)
-        {
-            auto newProcessName = runtimeName + iox::cxx::convert::toString(i);
-            auto newNodeName = nodeName + iox::cxx::convert::toString(i);
-            auto node = m_portManager->acquireNodeData(into<lossy<RuntimeName_t>>(newProcessName),
-                                                       into<lossy<NodeName_t>>(newNodeName));
-            ASSERT_FALSE(node.has_error());
-            if (f)
-            {
-                f(node.value(), newNodeName, newProcessName);
             }
         }
     }

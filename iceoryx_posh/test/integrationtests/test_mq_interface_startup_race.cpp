@@ -18,12 +18,12 @@
 #include "iceoryx_posh/iceoryx_posh_types.hpp"
 #include "test.hpp"
 
-#include "iceoryx_dust/cxx/std_string_support.hpp"
-#include "iceoryx_dust/posix_wrapper/message_queue.hpp"
-#include "iceoryx_hoofs/posix_wrapper/posix_call.hpp"
 #include "iceoryx_posh/internal/runtime/ipc_message.hpp"
 #include "iceoryx_posh/internal/runtime/ipc_runtime_interface.hpp"
 #include "iox/duration.hpp"
+#include "iox/message_queue.hpp"
+#include "iox/posix_call.hpp"
+#include "iox/std_string_support.hpp"
 
 
 #include <chrono>
@@ -35,9 +35,9 @@ namespace
 using namespace ::testing;
 using namespace iox;
 using namespace iox::units;
-using namespace iox::posix;
 using namespace iox::units::duration_literals;
 
+using iox::runtime::InterfaceName_t;
 using iox::runtime::IpcInterfaceBase;
 using iox::runtime::IpcMessage;
 using iox::runtime::IpcMessageType;
@@ -62,8 +62,8 @@ class CMqInterfaceStartupRace_test : public Test
     virtual void SetUp()
     {
         platform::IoxIpcChannelType::Builder_t()
-            .name(roudi::IPC_CHANNEL_ROUDI_NAME)
-            .channelSide(IpcChannelSide::SERVER)
+            .name(m_roudiIpcChannelName)
+            .channelSide(PosixIpcChannelSide::SERVER)
             .create()
             .and_then([this](auto& channel) { this->m_roudiQueue.emplace(std::move(channel)); });
         ASSERT_THAT(m_roudiQueue.has_value(), true);
@@ -98,15 +98,16 @@ class CMqInterfaceStartupRace_test : public Test
         constexpr uint32_t DUMMY_SHM_OFFSET{73};
         constexpr uint32_t DUMMY_SEGMENT_ID{13};
         constexpr uint32_t INDEX_OF_TIMESTAMP{4};
-        constexpr uint32_t SEND_KEEP_ALIVE{true};
+        constexpr iox::UntypedRelativePointer::offset_t OFFSET_ADDRESS_HEARTBEAT{
+            iox::UntypedRelativePointer::NULL_POINTER_OFFSET};
         regAck << IpcMessageTypeToString(IpcMessageType::REG_ACK) << DUMMY_SHM_SIZE << DUMMY_SHM_OFFSET
-               << oldMsg.getElementAtIndex(INDEX_OF_TIMESTAMP) << DUMMY_SEGMENT_ID << SEND_KEEP_ALIVE;
+               << oldMsg.getElementAtIndex(INDEX_OF_TIMESTAMP) << DUMMY_SEGMENT_ID << OFFSET_ADDRESS_HEARTBEAT;
 
         if (!m_appQueue.has_value())
         {
             platform::IoxIpcChannelType::Builder_t()
-                .name(MqAppName)
-                .channelSide(IpcChannelSide::CLIENT)
+                .name(runtime::ipcChannelNameToInterfaceName(MqAppName, DEFAULT_DOMAIN_ID, ResourceType::USER_DEFINED))
+                .channelSide(PosixIpcChannelSide::CLIENT)
                 .create()
                 .and_then([this](auto& channel) { this->m_appQueue.emplace(std::move(channel)); });
         }
@@ -120,6 +121,8 @@ class CMqInterfaceStartupRace_test : public Test
     optional<platform::IoxIpcChannelType> m_roudiQueue;
     std::mutex m_appQueueMutex;
     optional<platform::IoxIpcChannelType> m_appQueue;
+    InterfaceName_t m_roudiIpcChannelName{runtime::ipcChannelNameToInterfaceName(
+        roudi::IPC_CHANNEL_ROUDI_NAME, DEFAULT_DOMAIN_ID, ResourceType::ICEORYX_DEFINED)};
 };
 
 #if !defined(__APPLE__)
@@ -143,14 +146,15 @@ TEST_F(CMqInterfaceStartupRace_test, ObsoleteRouDiMq)
         checkRegRequest(msg);
 
         // simulate the restart of RouDi with the mqueue cleanup
-        posix::posixCall(system)(DeleteRouDiMessageQueue).failureReturnValue(-1).evaluate().or_else([](auto& r) {
+        IOX_POSIX_CALL(system)
+        (DeleteRouDiMessageQueue).failureReturnValue(-1).evaluate().or_else([](auto& r) {
             std::cerr << "system call failed with error: " << r.getHumanReadableErrnum();
             exit(EXIT_FAILURE);
         });
 
         auto m_roudiQueue2 = platform::IoxIpcChannelType::Builder_t()
-                                 .name(roudi::IPC_CHANNEL_ROUDI_NAME)
-                                 .channelSide(IpcChannelSide::SERVER)
+                                 .name(m_roudiIpcChannelName)
+                                 .channelSide(PosixIpcChannelSide::SERVER)
                                  .create();
 
         // check if the app retries to register at RouDi
@@ -167,7 +171,8 @@ TEST_F(CMqInterfaceStartupRace_test, ObsoleteRouDiMq)
         }
     });
 
-    IpcRuntimeInterface dut(roudi::IPC_CHANNEL_ROUDI_NAME, MqAppName, 35_s);
+    auto dut = IpcRuntimeInterface::create(MqAppName, DEFAULT_DOMAIN_ID, 35_s)
+                   .expect("Successfully created runtime interface");
 
     shutdown = true;
     roudi.join();
@@ -194,14 +199,15 @@ TEST_F(CMqInterfaceStartupRace_test, ObsoleteRouDiMqWithFullMq)
         std::this_thread::sleep_for(std::chrono::milliseconds(2000));
 
         // simulate the restart of RouDi with the mqueue cleanup
-        posix::posixCall(system)(DeleteRouDiMessageQueue).failureReturnValue(-1).evaluate().or_else([](auto& r) {
+        IOX_POSIX_CALL(system)
+        (DeleteRouDiMessageQueue).failureReturnValue(-1).evaluate().or_else([](auto& r) {
             std::cerr << "system call failed with error: " << r.getHumanReadableErrnum();
             exit(EXIT_FAILURE);
         });
 
         auto newRoudi = platform::IoxIpcChannelType::Builder_t()
-                            .name(roudi::IPC_CHANNEL_ROUDI_NAME)
-                            .channelSide(IpcChannelSide::SERVER)
+                            .name(m_roudiIpcChannelName)
+                            .channelSide(PosixIpcChannelSide::SERVER)
                             .create();
 
         // check if the app retries to register at RouDi
@@ -225,7 +231,8 @@ TEST_F(CMqInterfaceStartupRace_test, ObsoleteRouDiMqWithFullMq)
         }
     });
 
-    IpcRuntimeInterface dut(roudi::IPC_CHANNEL_ROUDI_NAME, MqAppName, 35_s);
+    auto dut = IpcRuntimeInterface::create(MqAppName, DEFAULT_DOMAIN_ID, 35_s)
+                   .expect("Successfully created runtime interface");
 
     shutdown = true;
     roudi.join();
@@ -266,7 +273,8 @@ TEST_F(CMqInterfaceStartupRace_test, ObsoleteRegAck)
         }
     });
 
-    IpcRuntimeInterface dut(roudi::IPC_CHANNEL_ROUDI_NAME, MqAppName, 35_s);
+    auto dut = IpcRuntimeInterface::create(MqAppName, DEFAULT_DOMAIN_ID, 35_s)
+                   .expect("Successfully created runtime interface");
 
     shutdown = true;
     roudi.join();

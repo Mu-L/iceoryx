@@ -17,11 +17,11 @@
 #ifndef IOX_HOOFS_TIME_UNITS_DURATION_HPP
 #define IOX_HOOFS_TIME_UNITS_DURATION_HPP
 
-#include "iceoryx_hoofs/cxx/type_traits.hpp"
 #include "iceoryx_platform/time.hpp" // required for QNX
 #include "iox/expected.hpp"
 #include "iox/log/logstream.hpp"
 #include "iox/logging.hpp"
+#include "iox/type_traits.hpp"
 
 #include <cmath>
 
@@ -76,9 +76,9 @@ constexpr Duration operator"" _d(unsigned long long int value) noexcept;
 ///   using namespace units::duration_literals;
 ///   auto someDays = 2 * 7_d + 5_ns;
 ///   auto someSeconds = 42_s + 500_ms;
-///   IOX_LOG(INFO) << someDays;
-///   IOX_LOG(INFO) << someDays.nanoSeconds<uint64_t>() << " ns";
-///   IOX_LOG(INFO) << someSeconds.milliSeconds<int64_t>() << " ms";
+///   IOX_LOG(INFO, someDays);
+///   IOX_LOG(INFO, someDays.nanoSeconds<uint64_t>() << " ns");
+///   IOX_LOG(INFO, someSeconds.milliSeconds<int64_t>() << " ms");
 /// @endcode
 class Duration
 {

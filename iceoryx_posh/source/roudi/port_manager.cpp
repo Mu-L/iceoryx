@@ -16,10 +16,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "iceoryx_posh/internal/roudi/port_manager.hpp"
-#include "iceoryx_posh/error_handling/error_handling.hpp"
 #include "iceoryx_posh/iceoryx_posh_types.hpp"
+#include "iceoryx_posh/internal/posh_error_reporting.hpp"
 #include "iceoryx_posh/popo/publisher_options.hpp"
 #include "iceoryx_posh/roudi/introspection_types.hpp"
+#include "iox/assertions.hpp"
 #include "iox/logging.hpp"
 #include "iox/vector.hpp"
 
@@ -31,11 +32,18 @@ namespace roudi
 {
 capro::Interfaces StringToCaProInterface(const capro::IdString_t& str) noexcept
 {
-    int32_t i{0};
-    cxx::convert::fromString(str.c_str(), i);
+    auto result = convert::from_string<int32_t>(str.c_str());
+    if (!result.has_value())
+    {
+        IOX_LOG(WARN, "conversion failure");
+        return capro::Interfaces::INTERNAL;
+    }
+
+    const auto i = result.value();
+
     if (i >= static_cast<int32_t>(capro::Interfaces::INTERFACE_END))
     {
-        IOX_LOG(WARN) << "invalid enum (out of range: " << i << ")";
+        IOX_LOG(WARN, "invalid enum (out of range: " << i << ")");
         return capro::Interfaces::INTERNAL;
     }
     return static_cast<capro::Interfaces>(i);
@@ -48,16 +56,16 @@ PortManager::PortManager(RouDiMemoryInterface* roudiMemoryInterface) noexcept
     auto maybePortPool = m_roudiMemoryInterface->portPool();
     if (!maybePortPool.has_value())
     {
-        IOX_LOG(FATAL) << "Could not get PortPool!";
-        errorHandler(PoshError::PORT_MANAGER__PORT_POOL_UNAVAILABLE, iox::ErrorLevel::FATAL);
+        IOX_LOG(FATAL, "Could not get PortPool!");
+        IOX_REPORT_FATAL(PoshError::PORT_MANAGER__PORT_POOL_UNAVAILABLE);
     }
     m_portPool = maybePortPool.value();
 
     auto maybeDiscoveryMemoryManager = m_roudiMemoryInterface->discoveryMemoryManager();
     if (!maybeDiscoveryMemoryManager.has_value())
     {
-        IOX_LOG(FATAL) << "Could not get MemoryManager for discovery!";
-        errorHandler(PoshError::PORT_MANAGER__DISCOVERY_MEMORY_MANAGER_UNAVAILABLE, iox::ErrorLevel::FATAL);
+        IOX_LOG(FATAL, "Could not get MemoryManager for discovery!");
+        IOX_REPORT_FATAL(PoshError::PORT_MANAGER__DISCOVERY_MEMORY_MANAGER_UNAVAILABLE);
     }
     auto& discoveryMemoryManager = maybeDiscoveryMemoryManager.value();
 
@@ -79,8 +87,8 @@ PortManager::PortManager(RouDiMemoryInterface* roudiMemoryInterface) noexcept
     auto maybeIntrospectionMemoryManager = m_roudiMemoryInterface->introspectionMemoryManager();
     if (!maybeIntrospectionMemoryManager.has_value())
     {
-        IOX_LOG(FATAL) << "Could not get MemoryManager for introspection!";
-        errorHandler(PoshError::PORT_MANAGER__INTROSPECTION_MEMORY_MANAGER_UNAVAILABLE, iox::ErrorLevel::FATAL);
+        IOX_LOG(FATAL, "Could not get MemoryManager for introspection!");
+        IOX_REPORT_FATAL(PoshError::PORT_MANAGER__INTROSPECTION_MEMORY_MANAGER_UNAVAILABLE);
     }
     auto& introspectionMemoryManager = maybeIntrospectionMemoryManager.value();
 
@@ -120,8 +128,6 @@ void PortManager::doDiscovery() noexcept
 
     handleInterfaces();
 
-    handleNodes();
-
     handleConditionVariables();
 
     publishServiceRegistry();
@@ -130,16 +136,19 @@ void PortManager::doDiscovery() noexcept
 void PortManager::handlePublisherPorts() noexcept
 {
     // get the changes of publisher port offer state
-    for (auto publisherPortData : m_portPool->getPublisherPortDataList())
+    auto& publisherPorts = m_portPool->getPublisherPortDataList();
+    auto port = publisherPorts.begin();
+    while (port != publisherPorts.end())
     {
-        PublisherPortRouDiType publisherPort(publisherPortData);
+        auto currentPort = port++;
+        PublisherPortRouDiType publisherPort(currentPort.to_ptr());
 
         doDiscoveryForPublisherPort(publisherPort);
 
         // check if we have to destroy this publisher port
         if (publisherPort.toBeDestroyed())
         {
-            destroyPublisherPort(publisherPortData);
+            destroyPublisherPort(currentPort.to_ptr());
         }
     }
 }
@@ -158,11 +167,12 @@ void PortManager::doDiscoveryForPublisherPort(PublisherPortRouDiType& publisherP
         }
         else
         {
-            IOX_LOG(WARN) << "CaPro protocol error for publisher from runtime '" << publisherPort.getRuntimeName()
-                          << "' and with service description '" << publisherPort.getCaProServiceDescription()
-                          << "'! Cannot handle CaProMessageType '" << caproMessage.m_type << "'";
-            errorHandler(PoshError::PORT_MANAGER__HANDLE_PUBLISHER_PORTS_INVALID_CAPRO_MESSAGE,
-                         iox::ErrorLevel::MODERATE);
+            IOX_LOG(WARN,
+                    "CaPro protocol error for publisher from runtime '"
+                        << publisherPort.getRuntimeName() << "' and with service description '"
+                        << publisherPort.getCaProServiceDescription() << "'! Cannot handle CaProMessageType '"
+                        << caproMessage.m_type << "'");
+            IOX_REPORT(PoshError::PORT_MANAGER__HANDLE_PUBLISHER_PORTS_INVALID_CAPRO_MESSAGE, iox::er::RUNTIME_ERROR);
             return;
         }
 
@@ -175,16 +185,19 @@ void PortManager::doDiscoveryForPublisherPort(PublisherPortRouDiType& publisherP
 void PortManager::handleSubscriberPorts() noexcept
 {
     // get requests for change of subscription state of subscribers
-    for (auto subscriberPortData : m_portPool->getSubscriberPortDataList())
+    auto& subscriberPorts = m_portPool->getSubscriberPortDataList();
+    auto port = subscriberPorts.begin();
+    while (port != subscriberPorts.end())
     {
-        SubscriberPortType subscriberPort(subscriberPortData);
+        auto currentPort = port++;
+        SubscriberPortType subscriberPort(currentPort.to_ptr());
 
         doDiscoveryForSubscriberPort(subscriberPort);
 
         // check if we have to destroy this subscriber port
         if (subscriberPort.toBeDestroyed())
         {
-            destroySubscriberPort(subscriberPortData);
+            destroySubscriberPort(currentPort.to_ptr());
         }
     }
 }
@@ -198,23 +211,26 @@ void PortManager::doDiscoveryForSubscriberPort(SubscriberPortType& subscriberPor
             m_portIntrospection.reportMessage(caproMessage, subscriberPort.getUniqueID());
             if (!this->sendToAllMatchingPublisherPorts(caproMessage, subscriberPort))
             {
-                IOX_LOG(DEBUG) << "capro::SUB/UNSUB, no matching publisher for subscriber from runtime '"
-                               << subscriberPort.getRuntimeName() << "' and with service description '"
-                               << caproMessage.m_serviceDescription << "'!";
+                IOX_LOG(DEBUG,
+                        "capro::SUB/UNSUB, no matching publisher for subscriber from runtime '"
+                            << subscriberPort.getRuntimeName() << "' and with service description '"
+                            << caproMessage.m_serviceDescription << "'!");
                 capro::CaproMessage nackMessage(capro::CaproMessageType::NACK,
                                                 subscriberPort.getCaProServiceDescription());
-                auto returnMessage = subscriberPort.dispatchCaProMessageAndGetPossibleResponse(nackMessage);
-                // No response on NACK messages
-                cxx::Ensures(!returnMessage.has_value());
+                subscriberPort.dispatchCaProMessageAndGetPossibleResponse(nackMessage).and_then([](auto& response) {
+                    IOX_LOG(FATAL, "Got response '" << response.m_type << "'");
+                    IOX_PANIC("Expected no response on NACK messages");
+                });
             }
         }
         else
         {
-            IOX_LOG(WARN) << "CaPro protocol error for subscriber from runtime '" << subscriberPort.getRuntimeName()
-                          << "' and with service description '" << subscriberPort.getCaProServiceDescription()
-                          << "'! Cannot handle CaProMessageType '" << caproMessage.m_type << "'";
-            errorHandler(PoshError::PORT_MANAGER__HANDLE_SUBSCRIBER_PORTS_INVALID_CAPRO_MESSAGE,
-                         iox::ErrorLevel::MODERATE);
+            IOX_LOG(WARN,
+                    "CaPro protocol error for subscriber from runtime '"
+                        << subscriberPort.getRuntimeName() << "' and with service description '"
+                        << subscriberPort.getCaProServiceDescription() << "'! Cannot handle CaProMessageType '"
+                        << caproMessage.m_type << "'");
+            IOX_REPORT(PoshError::PORT_MANAGER__HANDLE_SUBSCRIBER_PORTS_INVALID_CAPRO_MESSAGE, iox::er::RUNTIME_ERROR);
             return;
         }
     });
@@ -222,7 +238,7 @@ void PortManager::doDiscoveryForSubscriberPort(SubscriberPortType& subscriberPor
 
 void PortManager::destroyClientPort(popo::ClientPortData* const clientPortData) noexcept
 {
-    cxx::Ensures(clientPortData != nullptr && "clientPortData must not be a nullptr");
+    IOX_ENFORCE(clientPortData != nullptr, "clientPortData must not be a nullptr");
 
     // create temporary client ports to orderly shut this client down
     popo::ClientPortRouDi clientPortRoudi(*clientPortData);
@@ -232,7 +248,7 @@ void PortManager::destroyClientPort(popo::ClientPortData* const clientPortData) 
 
     // process DISCONNECT for this client in RouDi and distribute it
     clientPortRoudi.tryGetCaProMessage().and_then([this, &clientPortRoudi](auto caproMessage) {
-        cxx::Ensures(caproMessage.m_type == capro::CaproMessageType::DISCONNECT);
+        IOX_ENFORCE(caproMessage.m_type == capro::CaproMessageType::DISCONNECT, "Received wrong 'CaproMessageType'!");
 
         /// @todo iox-#1128 report to port introspection
         this->sendToAllMatchingServerPorts(caproMessage, clientPortRoudi);
@@ -242,8 +258,9 @@ void PortManager::destroyClientPort(popo::ClientPortData* const clientPortData) 
 
     /// @todo iox-#1128 remove from to port introspection
 
-    IOX_LOG(DEBUG) << "Destroy client port from runtime '" << clientPortData->m_runtimeName
-                   << "' and with service description '" << clientPortData->m_serviceDescription << "'";
+    IOX_LOG(DEBUG,
+            "Destroy client port from runtime '" << clientPortData->m_runtimeName << "' and with service description '"
+                                                 << clientPortData->m_serviceDescription << "'");
 
     // delete client port from list after DISCONNECT was processed
     m_portPool->removeClientPort(clientPortData);
@@ -252,16 +269,19 @@ void PortManager::destroyClientPort(popo::ClientPortData* const clientPortData) 
 void PortManager::handleClientPorts() noexcept
 {
     // get requests for change of connection state of clients
-    for (auto clientPortData : m_portPool->getClientPortDataList())
+    auto& clientPorts = m_portPool->getClientPortDataList();
+    auto port = clientPorts.begin();
+    while (port != clientPorts.end())
     {
-        popo::ClientPortRouDi clientPort(*clientPortData);
+        auto currentPort = port++;
+        popo::ClientPortRouDi clientPort(*currentPort);
 
         doDiscoveryForClientPort(clientPort);
 
         // check if we have to destroy this clinet port
         if (clientPort.toBeDestroyed())
         {
-            destroyClientPort(clientPortData);
+            destroyClientPort(currentPort.to_ptr());
         }
     }
 }
@@ -275,21 +295,25 @@ void PortManager::doDiscoveryForClientPort(popo::ClientPortRouDi& clientPort) no
             /// @todo iox-#1128 report to port introspection
             if (!this->sendToAllMatchingServerPorts(caproMessage, clientPort))
             {
-                IOX_LOG(DEBUG) << "capro::CONNECT/DISCONNECT, no matching server for client from runtime '"
-                               << clientPort.getRuntimeName() << "' and with service description '"
-                               << caproMessage.m_serviceDescription << "'!";
+                IOX_LOG(DEBUG,
+                        "capro::CONNECT/DISCONNECT, no matching server for client from runtime '"
+                            << clientPort.getRuntimeName() << "' and with service description '"
+                            << caproMessage.m_serviceDescription << "'!");
                 capro::CaproMessage nackMessage(capro::CaproMessageType::NACK, clientPort.getCaProServiceDescription());
-                auto returnMessage = clientPort.dispatchCaProMessageAndGetPossibleResponse(nackMessage);
-                // No response on NACK messages
-                cxx::Ensures(!returnMessage.has_value());
+                clientPort.dispatchCaProMessageAndGetPossibleResponse(nackMessage).and_then([](auto& response) {
+                    IOX_LOG(FATAL, "Got response '" << response.m_type << "'");
+                    IOX_PANIC("Expected no response on NACK messages");
+                });
             }
         }
         else
         {
-            IOX_LOG(WARN) << "CaPro protocol error for client from runtime '" << clientPort.getRuntimeName()
-                          << "' and with service description '" << clientPort.getCaProServiceDescription()
-                          << "'! Cannot handle CaProMessageType '" << caproMessage.m_type << "'";
-            errorHandler(PoshError::PORT_MANAGER__HANDLE_CLIENT_PORTS_INVALID_CAPRO_MESSAGE, iox::ErrorLevel::MODERATE);
+            IOX_LOG(WARN,
+                    "CaPro protocol error for client from runtime '"
+                        << clientPort.getRuntimeName() << "' and with service description '"
+                        << clientPort.getCaProServiceDescription() << "'! Cannot handle CaProMessageType '"
+                        << caproMessage.m_type << "'");
+            IOX_REPORT(PoshError::PORT_MANAGER__HANDLE_CLIENT_PORTS_INVALID_CAPRO_MESSAGE, iox::er::RUNTIME_ERROR);
             return;
         }
     });
@@ -297,18 +321,18 @@ void PortManager::doDiscoveryForClientPort(popo::ClientPortRouDi& clientPort) no
 
 void PortManager::makeAllServerPortsToStopOffer() noexcept
 {
-    for (auto port : m_portPool->getServerPortDataList())
+    for (auto& port : m_portPool->getServerPortDataList())
     {
-        port->m_offeringRequested.store(false, std::memory_order_relaxed);
+        port.m_offeringRequested.store(false, std::memory_order_relaxed);
 
-        popo::ServerPortRouDi serverPort(*port);
+        popo::ServerPortRouDi serverPort(port);
         doDiscoveryForServerPort(serverPort);
     }
 }
 
 void PortManager::destroyServerPort(popo::ServerPortData* const serverPortData) noexcept
 {
-    cxx::Ensures(serverPortData != nullptr && "serverPortData must not be a nullptr");
+    IOX_ENFORCE(serverPortData != nullptr, "serverPortData must not be a nullptr");
 
     // create temporary server ports to orderly shut this server down
     popo::ServerPortRouDi serverPortRoudi{*serverPortData};
@@ -318,8 +342,9 @@ void PortManager::destroyServerPort(popo::ServerPortData* const serverPortData) 
 
     // process STOP_OFFER for this server in RouDi and distribute it
     serverPortRoudi.tryGetCaProMessage().and_then([this, &serverPortRoudi](auto caproMessage) {
-        cxx::Ensures(caproMessage.m_type == capro::CaproMessageType::STOP_OFFER);
-        cxx::Ensures(caproMessage.m_serviceType == capro::CaproServiceType::SERVER);
+        IOX_ENFORCE(caproMessage.m_type == capro::CaproMessageType::STOP_OFFER, "Received wrong 'CaproMessageType'!");
+        IOX_ENFORCE(caproMessage.m_serviceType == capro::CaproServiceType::SERVER,
+                    "Received wrong 'CaproServiceType'!");
 
         /// @todo iox-#1128 report to port introspection
         this->removeServerFromServiceRegistry(caproMessage.m_serviceDescription);
@@ -331,8 +356,9 @@ void PortManager::destroyServerPort(popo::ServerPortData* const serverPortData) 
 
     /// @todo iox-#1128 remove from port introspection
 
-    IOX_LOG(DEBUG) << "Destroy server port from runtime '" << serverPortData->m_runtimeName
-                   << "' and with service description '" << serverPortData->m_serviceDescription << "'";
+    IOX_LOG(DEBUG,
+            "Destroy server port from runtime '" << serverPortData->m_runtimeName << "' and with service description '"
+                                                 << serverPortData->m_serviceDescription << "'");
 
     // delete server port from list after STOP_OFFER was processed
     m_portPool->removeServerPort(serverPortData);
@@ -341,16 +367,19 @@ void PortManager::destroyServerPort(popo::ServerPortData* const serverPortData) 
 void PortManager::handleServerPorts() noexcept
 {
     // get the changes of server port offer state
-    for (auto serverPortData : m_portPool->getServerPortDataList())
+    auto& serverPorts = m_portPool->getServerPortDataList();
+    auto port = serverPorts.begin();
+    while (port != serverPorts.end())
     {
-        popo::ServerPortRouDi serverPort(*serverPortData);
+        auto currentPort = port++;
+        popo::ServerPortRouDi serverPort(*currentPort);
 
         doDiscoveryForServerPort(serverPort);
 
         // check if we have to destroy this server port
         if (serverPort.toBeDestroyed())
         {
-            destroyServerPort(serverPortData);
+            destroyServerPort(currentPort.to_ptr());
         }
     }
 }
@@ -370,10 +399,12 @@ void PortManager::doDiscoveryForServerPort(popo::ServerPortRouDi& serverPort) no
         }
         else
         {
-            IOX_LOG(WARN) << "CaPro protocol error for server from runtime '" << serverPort.getRuntimeName()
-                          << "' and with service description '" << serverPort.getCaProServiceDescription()
-                          << "'! Cannot handle CaProMessageType '" << caproMessage.m_type << "'";
-            errorHandler(PoshError::PORT_MANAGER__HANDLE_SERVER_PORTS_INVALID_CAPRO_MESSAGE, iox::ErrorLevel::MODERATE);
+            IOX_LOG(WARN,
+                    "CaPro protocol error for server from runtime '"
+                        << serverPort.getRuntimeName() << "' and with service description '"
+                        << serverPort.getCaProServiceDescription() << "'! Cannot handle CaProMessageType '"
+                        << caproMessage.m_type << "'");
+            IOX_REPORT(PoshError::PORT_MANAGER__HANDLE_SERVER_PORTS_INVALID_CAPRO_MESSAGE, iox::er::RUNTIME_ERROR);
             return;
         }
 
@@ -388,20 +419,25 @@ void PortManager::handleInterfaces() noexcept
     vector<popo::InterfacePortData*, MAX_INTERFACE_NUMBER> interfacePortsForInitialForwarding;
 
 
-    for (auto interfacePortData : m_portPool->getInterfacePortDataList())
+    auto& interfacePorts = m_portPool->getInterfacePortDataList();
+    auto port = interfacePorts.begin();
+    while (port != interfacePorts.end())
     {
-        if (interfacePortData->m_doInitialOfferForward)
+        auto currentPort = port++;
+        if (currentPort->m_doInitialOfferForward)
         {
-            interfacePortsForInitialForwarding.push_back(interfacePortData);
-            interfacePortData->m_doInitialOfferForward = false;
+            interfacePortsForInitialForwarding.push_back(currentPort.to_ptr());
+            currentPort->m_doInitialOfferForward = false;
         }
 
         // check if we have to destroy this interface port
-        if (interfacePortData->m_toBeDestroyed.load(std::memory_order_relaxed))
+        if (currentPort->m_toBeDestroyed.load(std::memory_order_relaxed))
         {
-            IOX_LOG(DEBUG) << "Destroy interface port from runtime '" << interfacePortData->m_runtimeName
-                           << "' and with service description '" << interfacePortData->m_serviceDescription << "'";
-            m_portPool->removeInterfacePort(interfacePortData);
+            IOX_LOG(DEBUG,
+                    "Destroy interface port from runtime '" << currentPort->m_runtimeName
+                                                            << "' and with service description '"
+                                                            << currentPort->m_serviceDescription << "'");
+            m_portPool->removeInterfacePort(currentPort.to_ptr());
         }
     }
 
@@ -411,9 +447,9 @@ void PortManager::handleInterfaces() noexcept
         capro::CaproMessage caproMessage;
         caproMessage.m_type = capro::CaproMessageType::OFFER;
         caproMessage.m_serviceType = capro::CaproServiceType::PUBLISHER;
-        for (auto publisherPortData : m_portPool->getPublisherPortDataList())
+        for (auto& publisherPortData : m_portPool->getPublisherPortDataList())
         {
-            PublisherPortUserType publisherPort(publisherPortData);
+            PublisherPortUserType publisherPort(&publisherPortData);
             if (publisherPort.isOffered())
             {
                 caproMessage.m_serviceDescription = publisherPort.getCaProServiceDescription();
@@ -431,9 +467,9 @@ void PortManager::handleInterfaces() noexcept
         }
         // provide offer information from all active server ports to all new interfaces
         caproMessage.m_serviceType = capro::CaproServiceType::SERVER;
-        for (auto serverPortData : m_portPool->getServerPortDataList())
+        for (auto& serverPortData : m_portPool->getServerPortDataList())
         {
-            popo::ServerPortUser serverPort(*serverPortData);
+            popo::ServerPortUser serverPort(serverPortData);
             if (serverPort.isOffered())
             {
                 caproMessage.m_serviceDescription = serverPort.getCaProServiceDescription();
@@ -452,33 +488,17 @@ void PortManager::handleInterfaces() noexcept
     }
 }
 
-void PortManager::handleNodes() noexcept
-{
-    /// @todo iox-#518 we have to update the introspection but node information is in process introspection which is not
-    // accessible here. So currently nodes will be removed not before a process is removed
-    // m_processIntrospection->removeNode(RuntimeName_t(process.c_str()),
-    // NodeName_t(node.c_str()));
-
-    for (auto nodeData : m_portPool->getNodeDataList())
-    {
-        if (nodeData->m_toBeDestroyed.load(std::memory_order_relaxed))
-        {
-            IOX_LOG(DEBUG) << "Destroy NodeData from runtime '" << nodeData->m_runtimeName << "' and node name '"
-                           << nodeData->m_nodeName << "'";
-            m_portPool->removeNodeData(nodeData);
-        }
-    }
-}
-
 void PortManager::handleConditionVariables() noexcept
 {
-    for (auto conditionVariableData : m_portPool->getConditionVariableDataList())
+    auto& condVars = m_portPool->getConditionVariableDataList();
+    auto condVar = condVars.begin();
+    while (condVar != condVars.end())
     {
-        if (conditionVariableData->m_toBeDestroyed.load(std::memory_order_relaxed))
+        auto currentCondVar = condVar++;
+        if (currentCondVar->m_toBeDestroyed.load(std::memory_order_relaxed))
         {
-            IOX_LOG(DEBUG) << "Destroy ConditionVariableData from runtime '" << conditionVariableData->m_runtimeName
-                           << "'";
-            m_portPool->removeConditionVariableData(conditionVariableData);
+            IOX_LOG(DEBUG, "Destroy ConditionVariableData from runtime '" << currentCondVar->m_runtimeName << "'");
+            m_portPool->removeConditionVariableData(currentCondVar.to_ptr());
         }
     }
 }
@@ -507,9 +527,9 @@ bool PortManager::sendToAllMatchingPublisherPorts(const capro::CaproMessage& mes
                                                   SubscriberPortType& subscriberSource) noexcept
 {
     bool publisherFound = false;
-    for (auto publisherPortData : m_portPool->getPublisherPortDataList())
+    for (auto& publisherPortData : m_portPool->getPublisherPortDataList())
     {
-        PublisherPortRouDiType publisherPort(publisherPortData);
+        PublisherPortRouDiType publisherPort(&publisherPortData);
 
         auto messageInterface = message.m_serviceDescription.getSourceInterface();
         auto publisherInterface = publisherPort.getCaProServiceDescription().getSourceInterface();
@@ -528,13 +548,12 @@ bool PortManager::sendToAllMatchingPublisherPorts(const capro::CaproMessage& mes
             if (publisherResponse.has_value())
             {
                 // send response to subscriber port
-                auto returnMessage =
-                    subscriberSource.dispatchCaProMessageAndGetPossibleResponse(publisherResponse.value());
+                subscriberSource.dispatchCaProMessageAndGetPossibleResponse(publisherResponse.value())
+                    .and_then([](auto& response) {
+                        IOX_LOG(FATAL, "Got response '" << response.m_type << "'");
+                        IOX_PANIC("Expected no response on ACK or NACK messages");
+                    });
 
-                // ACK or NACK are sent back to the subscriber port, no further response from this one expected
-                cxx::Ensures(!returnMessage.has_value());
-
-                // inform introspection
                 m_portIntrospection.reportMessage(publisherResponse.value(), subscriberSource.getUniqueID());
             }
             publisherFound = true;
@@ -546,9 +565,9 @@ bool PortManager::sendToAllMatchingPublisherPorts(const capro::CaproMessage& mes
 void PortManager::sendToAllMatchingSubscriberPorts(const capro::CaproMessage& message,
                                                    PublisherPortRouDiType& publisherSource) noexcept
 {
-    for (auto subscriberPortData : m_portPool->getSubscriberPortDataList())
+    for (auto& subscriberPortData : m_portPool->getSubscriberPortDataList())
     {
-        SubscriberPortType subscriberPort(subscriberPortData);
+        SubscriberPortType subscriberPort(&subscriberPortData);
 
         auto messageInterface = message.m_serviceDescription.getSourceInterface();
         auto subscriberInterface = subscriberPort.getCaProServiceDescription().getSourceInterface();
@@ -569,7 +588,7 @@ void PortManager::sendToAllMatchingSubscriberPorts(const capro::CaproMessage& me
             if (subscriberResponse.has_value())
             {
                 // we only expect reaction on OFFER
-                cxx::Expects(capro::CaproMessageType::OFFER == message.m_type);
+                IOX_ENFORCE(capro::CaproMessageType::OFFER == message.m_type, "Received wrong 'CaproMessageType'!");
 
                 // inform introspection
                 m_portIntrospection.reportMessage(subscriberResponse.value());
@@ -579,13 +598,12 @@ void PortManager::sendToAllMatchingSubscriberPorts(const capro::CaproMessage& me
                 if (publisherResponse.has_value())
                 {
                     // sende responsee to subscriber port
-                    auto returnMessage =
-                        subscriberPort.dispatchCaProMessageAndGetPossibleResponse(publisherResponse.value());
+                    subscriberPort.dispatchCaProMessageAndGetPossibleResponse(publisherResponse.value())
+                        .and_then([](auto& response) {
+                            IOX_LOG(FATAL, "Got response '" << response.m_type << "'");
+                            IOX_PANIC("Expected no response on ACK or NACK messages");
+                        });
 
-                    // ACK or NACK are sent back to the subscriber port, no further response from this one expected
-                    cxx::Ensures(!returnMessage.has_value());
-
-                    // inform introspection
                     m_portIntrospection.reportMessage(publisherResponse.value());
                 }
             }
@@ -613,9 +631,9 @@ bool PortManager::isCompatibleClientServer(const popo::ServerPortRouDi& server,
 void PortManager::sendToAllMatchingClientPorts(const capro::CaproMessage& message,
                                                popo::ServerPortRouDi& serverSource) noexcept
 {
-    for (auto clientPortData : m_portPool->getClientPortDataList())
+    for (auto& clientPortData : m_portPool->getClientPortDataList())
     {
-        popo::ClientPortRouDi clientPort(*clientPortData);
+        popo::ClientPortRouDi clientPort(clientPortData);
         if (isCompatibleClientServer(serverSource, clientPort))
         {
             // send OFFER/STOP_OFFER to client
@@ -625,7 +643,8 @@ void PortManager::sendToAllMatchingClientPorts(const capro::CaproMessage& messag
             if (clientResponse.has_value())
             {
                 // we only expect reaction on CONNECT
-                cxx::Expects(capro::CaproMessageType::CONNECT == clientResponse.value().m_type);
+                IOX_ENFORCE(capro::CaproMessageType::CONNECT == clientResponse.value().m_type,
+                            "Received wrong 'CaproMessageType'!");
 
                 /// @todo iox-#518 inform port introspection about client
 
@@ -633,11 +652,12 @@ void PortManager::sendToAllMatchingClientPorts(const capro::CaproMessage& messag
                 auto serverResponse = serverSource.dispatchCaProMessageAndGetPossibleResponse(clientResponse.value());
                 if (serverResponse.has_value())
                 {
-                    // sende responsee to client port
-                    auto returnMessage = clientPort.dispatchCaProMessageAndGetPossibleResponse(serverResponse.value());
-
-                    // ACK or NACK are sent back to the client port, no further response from this one expected
-                    cxx::Ensures(!returnMessage.has_value());
+                    // send response to client port
+                    clientPort.dispatchCaProMessageAndGetPossibleResponse(serverResponse.value())
+                        .and_then([](auto& response) {
+                            IOX_LOG(FATAL, "Got response '" << response.m_type << "'");
+                            IOX_PANIC("Expected no response on ACK or NACK messages");
+                        });
 
                     /// @todo iox-#1128 inform port introspection about server
                 }
@@ -650,9 +670,9 @@ bool PortManager::sendToAllMatchingServerPorts(const capro::CaproMessage& messag
                                                popo::ClientPortRouDi& clientSource) noexcept
 {
     bool serverFound = false;
-    for (auto serverPortData : m_portPool->getServerPortDataList())
+    for (auto& serverPortData : m_portPool->getServerPortDataList())
     {
-        popo::ServerPortRouDi serverPort(*serverPortData);
+        popo::ServerPortRouDi serverPort(serverPortData);
         if (isCompatibleClientServer(serverPort, clientSource))
         {
             // send CONNECT/DISCONNECT to server
@@ -662,10 +682,11 @@ bool PortManager::sendToAllMatchingServerPorts(const capro::CaproMessage& messag
             if (serverResponse.has_value())
             {
                 // send response to client port
-                auto returnMessage = clientSource.dispatchCaProMessageAndGetPossibleResponse(serverResponse.value());
-
-                // ACK or NACK are sent back to the client port, no further response from this one expected
-                cxx::Ensures(!returnMessage.has_value());
+                clientSource.dispatchCaProMessageAndGetPossibleResponse(serverResponse.value())
+                    .and_then([](auto& response) {
+                        IOX_LOG(FATAL, "Got response '" << response.m_type << "'");
+                        IOX_PANIC("Expected no response on ACK or NACK messages");
+                    });
 
                 /// @todo iox-#1128 inform port introspection about client
             }
@@ -677,9 +698,9 @@ bool PortManager::sendToAllMatchingServerPorts(const capro::CaproMessage& messag
 
 void PortManager::sendToAllMatchingInterfacePorts(const capro::CaproMessage& message) noexcept
 {
-    for (auto interfacePortData : m_portPool->getInterfacePortDataList())
+    for (auto& interfacePortData : m_portPool->getInterfacePortDataList())
     {
-        iox::popo::InterfacePort interfacePort(interfacePortData);
+        iox::popo::InterfacePort interfacePort(&interfacePortData);
         // not to the interface the port is located
         if (message.m_serviceDescription.getSourceInterface()
             != interfacePort.getCaProServiceDescription().getSourceInterface())
@@ -691,22 +712,22 @@ void PortManager::sendToAllMatchingInterfacePorts(const capro::CaproMessage& mes
 
 void PortManager::unblockProcessShutdown(const RuntimeName_t& runtimeName) noexcept
 {
-    for (auto port : m_portPool->getPublisherPortDataList())
+    for (auto& port : m_portPool->getPublisherPortDataList())
     {
-        PublisherPortRouDiType publisherPort(port);
+        PublisherPortRouDiType publisherPort(&port);
         if (runtimeName == publisherPort.getRuntimeName())
         {
-            port->m_offeringRequested.store(false, std::memory_order_relaxed);
+            port.m_offeringRequested.store(false, std::memory_order_relaxed);
             doDiscoveryForPublisherPort(publisherPort);
         }
     }
 
-    for (auto port : m_portPool->getServerPortDataList())
+    for (auto& port : m_portPool->getServerPortDataList())
     {
-        popo::ServerPortRouDi serverPort(*port);
+        popo::ServerPortRouDi serverPort(port);
         if (runtimeName == serverPort.getRuntimeName())
         {
-            port->m_offeringRequested.store(false, std::memory_order_relaxed);
+            port.m_offeringRequested.store(false, std::memory_order_relaxed);
             doDiscoveryForServerPort(serverPort);
         }
     }
@@ -720,11 +741,11 @@ void PortManager::unblockRouDiShutdown() noexcept
 
 void PortManager::makeAllPublisherPortsToStopOffer() noexcept
 {
-    for (auto port : m_portPool->getPublisherPortDataList())
+    for (auto& port : m_portPool->getPublisherPortDataList())
     {
-        port->m_offeringRequested.store(false, std::memory_order_relaxed);
+        port.m_offeringRequested.store(false, std::memory_order_relaxed);
 
-        PublisherPortRouDiType publisherPort(port);
+        PublisherPortRouDiType publisherPort(&port);
         doDiscoveryForPublisherPort(publisherPort);
     }
 }
@@ -736,67 +757,76 @@ void PortManager::deletePortsOfProcess(const RuntimeName_t& runtimeName) noexcep
     {
         m_serviceRegistryPublisherPortData.reset();
     }
-    for (auto port : m_portPool->getPublisherPortDataList())
+    auto& publisherPorts = m_portPool->getPublisherPortDataList();
+    auto publisherPort = publisherPorts.begin();
+    while (publisherPort != publisherPorts.end())
     {
-        PublisherPortRouDiType sender(port);
+        auto currentPort = publisherPort++;
+        PublisherPortRouDiType sender(currentPort.to_ptr());
         if (runtimeName == sender.getRuntimeName())
         {
-            destroyPublisherPort(port);
+            destroyPublisherPort(currentPort.to_ptr());
         }
     }
 
-    for (auto port : m_portPool->getSubscriberPortDataList())
+    auto& subscriberPorts = m_portPool->getSubscriberPortDataList();
+    auto subscriberPort = subscriberPorts.begin();
+    while (subscriberPort != subscriberPorts.end())
     {
-        SubscriberPortUserType subscriber(port);
+        auto currentPort = subscriberPort++;
+        SubscriberPortUserType subscriber(currentPort.to_ptr());
         if (runtimeName == subscriber.getRuntimeName())
         {
-            destroySubscriberPort(port);
+            destroySubscriberPort(currentPort.to_ptr());
         }
     }
 
-    for (auto port : m_portPool->getServerPortDataList())
+    auto& serverPorts = m_portPool->getServerPortDataList();
+    auto serverPort = serverPorts.begin();
+    while (serverPort != serverPorts.end())
     {
-        popo::ServerPortRouDi server(*port);
+        auto currentPort = serverPort++;
+        popo::ServerPortRouDi server(*currentPort);
         if (runtimeName == server.getRuntimeName())
         {
-            destroyServerPort(port);
+            destroyServerPort(currentPort.to_ptr());
         }
     }
 
-    for (auto port : m_portPool->getClientPortDataList())
+    auto& clientPorts = m_portPool->getClientPortDataList();
+    auto clientPort = clientPorts.begin();
+    while (clientPort != clientPorts.end())
     {
-        popo::ClientPortRouDi client(*port);
+        auto currentPort = clientPort++;
+        popo::ClientPortRouDi client(*currentPort);
         if (runtimeName == client.getRuntimeName())
         {
-            destroyClientPort(port);
+            destroyClientPort(currentPort.to_ptr());
         }
     }
 
-    for (auto port : m_portPool->getInterfacePortDataList())
+    auto& interfacePorts = m_portPool->getInterfacePortDataList();
+    auto interfacePort = interfacePorts.begin();
+    while (interfacePort != interfacePorts.end())
     {
-        popo::InterfacePort interface(port);
+        auto currentPort = interfacePort++;
+        popo::InterfacePort interface(currentPort.to_ptr());
         if (runtimeName == interface.getRuntimeName())
         {
-            m_portPool->removeInterfacePort(port);
-            IOX_LOG(DEBUG) << "Deleted Interface of application " << runtimeName;
+            IOX_LOG(DEBUG, "Deleted Interface of application " << runtimeName);
+            m_portPool->removeInterfacePort(currentPort.to_ptr());
         }
     }
 
-    for (auto nodeData : m_portPool->getNodeDataList())
+    auto& condVars = m_portPool->getConditionVariableDataList();
+    auto condVar = condVars.begin();
+    while (condVar != condVars.end())
     {
-        if (runtimeName == nodeData->m_runtimeName)
+        auto currentCondVar = condVar++;
+        if (runtimeName == currentCondVar->m_runtimeName)
         {
-            m_portPool->removeNodeData(nodeData);
-            IOX_LOG(DEBUG) << "Deleted node of application " << runtimeName;
-        }
-    }
-
-    for (auto conditionVariableData : m_portPool->getConditionVariableDataList())
-    {
-        if (runtimeName == conditionVariableData->m_runtimeName)
-        {
-            m_portPool->removeConditionVariableData(conditionVariableData);
-            IOX_LOG(DEBUG) << "Deleted condition variable of application" << runtimeName;
+            IOX_LOG(DEBUG, "Deleted condition variable of application" << runtimeName);
+            m_portPool->removeConditionVariableData(currentCondVar.to_ptr());
         }
     }
 }
@@ -811,7 +841,7 @@ void PortManager::destroyPublisherPort(PublisherPortRouDiType::MemberType_t* con
 
     // process STOP_OFFER for this publisher in RouDi and distribute it
     publisherPortRoudi.tryGetCaProMessage().and_then([this, &publisherPortRoudi](auto caproMessage) {
-        cxx::Ensures(caproMessage.m_type == capro::CaproMessageType::STOP_OFFER);
+        IOX_ENFORCE(caproMessage.m_type == capro::CaproMessageType::STOP_OFFER, "Received wrong 'CaproMessageType'!");
 
         m_portIntrospection.reportMessage(caproMessage);
         this->removePublisherFromServiceRegistry(caproMessage.m_serviceDescription);
@@ -823,8 +853,10 @@ void PortManager::destroyPublisherPort(PublisherPortRouDiType::MemberType_t* con
 
     m_portIntrospection.removePublisher(publisherPortUser);
 
-    IOX_LOG(DEBUG) << "Destroy publisher port from runtime '" << publisherPortData->m_runtimeName
-                   << "' and with service description '" << publisherPortData->m_serviceDescription << "'";
+    IOX_LOG(DEBUG,
+            "Destroy publisher port from runtime '" << publisherPortData->m_runtimeName
+                                                    << "' and with service description '"
+                                                    << publisherPortData->m_serviceDescription << "'");
     // delete publisher port from list after STOP_OFFER was processed
     m_portPool->removePublisherPort(publisherPortData);
 }
@@ -839,7 +871,7 @@ void PortManager::destroySubscriberPort(SubscriberPortType::MemberType_t* const 
 
     // process UNSUB for this subscriber in RouDi and distribute it
     subscriberPortRoudi.tryGetCaProMessage().and_then([this, &subscriberPortRoudi](auto caproMessage) {
-        cxx::Ensures(caproMessage.m_type == capro::CaproMessageType::UNSUB);
+        IOX_ENFORCE(caproMessage.m_type == capro::CaproMessageType::UNSUB, "Received wrong 'CaproMessageType'!");
 
         m_portIntrospection.reportMessage(caproMessage);
         this->sendToAllMatchingPublisherPorts(caproMessage, subscriberPortRoudi);
@@ -849,8 +881,10 @@ void PortManager::destroySubscriberPort(SubscriberPortType::MemberType_t* const 
 
     m_portIntrospection.removeSubscriber(subscriberPortUser);
 
-    IOX_LOG(DEBUG) << "Destroy subscriber port from runtime '" << subscriberPortData->m_runtimeName
-                   << "' and with service description '" << subscriberPortData->m_serviceDescription << "'";
+    IOX_LOG(DEBUG,
+            "Destroy subscriber port from runtime '" << subscriberPortData->m_runtimeName
+                                                     << "' and with service description '"
+                                                     << subscriberPortData->m_serviceDescription << "'");
     // delete subscriber port from list after UNSUB was processed
     m_portPool->removeSubscriberPort(subscriberPortData);
 }
@@ -877,15 +911,17 @@ PortManager::acquirePublisherPortDataWithoutDiscovery(const capro::ServiceDescri
                                                       mepoo::MemoryManager* const payloadDataSegmentMemoryManager,
                                                       const PortConfigInfo& portConfigInfo) noexcept
 {
-    if (doesViolateCommunicationPolicy<iox::build::CommunicationPolicy>(service).and_then(
-            [&](const auto& usedByProcess) {
-                IOX_LOG(WARN)
-                    << "Process '" << runtimeName
+    if (doesViolateCommunicationPolicy<iox::build::CommunicationPolicy>(service).and_then([&](const auto&
+                                                                                                  usedByProcess) {
+            IOX_LOG(
+                WARN,
+                "Process '"
+                    << runtimeName
                     << "' violates the communication policy by requesting a PublisherPort which is already used by '"
-                    << usedByProcess << "' with service '" << service.operator cxx::Serialization().toString() << "'.";
-            }))
+                    << usedByProcess << "' with service '" << service.operator Serialization().toString() << "'.");
+        }))
     {
-        errorHandler(PoshError::POSH__PORT_MANAGER_PUBLISHERPORT_NOT_UNIQUE, ErrorLevel::MODERATE);
+        IOX_REPORT(PoshError::POSH__PORT_MANAGER_PUBLISHERPORT_NOT_UNIQUE, iox::er::RUNTIME_ERROR);
         return err(PortPoolError::UNIQUE_PUBLISHER_PORT_ALREADY_EXISTS);
     }
 
@@ -895,7 +931,7 @@ PortManager::acquirePublisherPortDataWithoutDiscovery(const capro::ServiceDescri
     }
     else if (isInternal(service))
     {
-        errorHandler(PoshError::POSH__PORT_MANAGER_INTERNAL_SERVICE_DESCRIPTION_IS_FORBIDDEN, ErrorLevel::MODERATE);
+        IOX_REPORT(PoshError::POSH__PORT_MANAGER_INTERNAL_SERVICE_DESCRIPTION_IS_FORBIDDEN, iox::er::RUNTIME_ERROR);
         return err(PortPoolError::INTERNAL_SERVICE_DESCRIPTION_IS_FORBIDDEN);
     }
 
@@ -923,8 +959,8 @@ PortManager::acquireInternalPublisherPortData(const capro::ServiceDescription& s
     return acquirePublisherPortDataWithoutDiscovery(
                service, publisherOptions, IPC_CHANNEL_ROUDI_NAME, payloadDataSegmentMemoryManager, PortConfigInfo())
         .or_else([&service](auto&) {
-            IOX_LOG(FATAL) << "Could not create PublisherPort for internal service " << service;
-            errorHandler(PoshError::PORT_MANAGER__NO_PUBLISHER_PORT_FOR_INTERNAL_SERVICE, ErrorLevel::FATAL);
+            IOX_LOG(FATAL, "Could not create PublisherPort for internal service " << service);
+            IOX_REPORT_FATAL(PoshError::PORT_MANAGER__NO_PUBLISHER_PORT_FOR_INTERNAL_SERVICE);
         })
         .and_then([&](auto publisherPortData) {
             // now the port to send registry information exists and can be used to publish service registry changes
@@ -942,8 +978,8 @@ PublisherPortRouDiType::MemberType_t* PortManager::acquireInternalPublisherPortD
     return acquirePublisherPortDataWithoutDiscovery(
                service, publisherOptions, IPC_CHANNEL_ROUDI_NAME, payloadDataSegmentMemoryManager, PortConfigInfo())
         .or_else([&service](auto&) {
-            IOX_LOG(FATAL) << "Could not create PublisherPort for internal service " << service;
-            errorHandler(PoshError::PORT_MANAGER__NO_PUBLISHER_PORT_FOR_INTERNAL_SERVICE, ErrorLevel::FATAL);
+            IOX_LOG(FATAL, "Could not create PublisherPort for internal service " << service);
+            IOX_REPORT_FATAL(PoshError::PORT_MANAGER__NO_PUBLISHER_PORT_FOR_INTERNAL_SERVICE);
         })
         .value();
 }
@@ -1000,20 +1036,26 @@ PortManager::acquireServerPortData(const capro::ServiceDescription& service,
 {
     // it is not allowed to have two servers with the same ServiceDescription;
     // check if the server is already in the list
-    for (const auto serverPortData : m_portPool->getServerPortDataList())
+    auto& serverPorts = m_portPool->getServerPortDataList();
+    auto port = serverPorts.begin();
+    while (port != serverPorts.end())
     {
-        if (service == serverPortData->m_serviceDescription)
+        auto currentPort = port++;
+
+        if (service == currentPort->m_serviceDescription)
         {
-            if (serverPortData->m_toBeDestroyed)
+            if (currentPort->m_toBeDestroyed)
             {
-                destroyServerPort(serverPortData);
+                destroyServerPort(currentPort.to_ptr());
                 continue;
             }
-            IOX_LOG(WARN) << "Process '" << runtimeName
-                          << "' violates the communication policy by requesting a ServerPort which is already used by '"
-                          << serverPortData->m_runtimeName << "' with service '"
-                          << service.operator cxx::Serialization().toString() << "'.";
-            errorHandler(PoshError::POSH__PORT_MANAGER_SERVERPORT_NOT_UNIQUE, ErrorLevel::MODERATE);
+            IOX_LOG(WARN,
+                    "Process '"
+                        << runtimeName
+                        << "' violates the communication policy by requesting a ServerPort which is already used by '"
+                        << currentPort->m_runtimeName << "' with service '"
+                        << service.operator Serialization().toString() << "'.");
+            IOX_REPORT(PoshError::POSH__PORT_MANAGER_SERVERPORT_NOT_UNIQUE, iox::er::RUNTIME_ERROR);
             return err(PortPoolError::UNIQUE_SERVER_PORT_ALREADY_EXISTS);
         }
     }
@@ -1032,8 +1074,7 @@ PortManager::acquireServerPortData(const capro::ServiceDescription& service,
 
 /// @todo iox-#518 return a expected
 popo::InterfacePortData* PortManager::acquireInterfacePortData(capro::Interfaces interface,
-                                                               const RuntimeName_t& runtimeName,
-                                                               const NodeName_t& /*node*/) noexcept
+                                                               const RuntimeName_t& runtimeName) noexcept
 {
     auto result = m_portPool->addInterfacePort(runtimeName, interface);
     if (result.has_value())
@@ -1057,7 +1098,7 @@ void PortManager::publishServiceRegistry() noexcept
     {
         // should not happen (except during RouDi shutdown)
         // the port always exists, otherwise we would terminate during startup
-        IOX_LOG(WARN) << "Could not publish service registry!";
+        IOX_LOG(WARN, "Could not publish service registry!");
         return;
     }
     PublisherPortUserType publisher(m_serviceRegistryPublisherPortData.value());
@@ -1072,7 +1113,7 @@ void PortManager::publishServiceRegistry() noexcept
 
             publisher.sendChunk(chunk);
         })
-        .or_else([](auto&) { IOX_LOG(WARN) << "Could not allocate a chunk for the service registry!"; });
+        .or_else([](auto&) { IOX_LOG(WARN, "Could not allocate a chunk for the service registry!"); });
 }
 
 const ServiceRegistry& PortManager::serviceRegistry() const noexcept
@@ -1083,8 +1124,8 @@ const ServiceRegistry& PortManager::serviceRegistry() const noexcept
 void PortManager::addPublisherToServiceRegistry(const capro::ServiceDescription& service) noexcept
 {
     m_serviceRegistry.addPublisher(service).or_else([&](auto&) {
-        IOX_LOG(WARN) << "Could not add publisher with service description '" << service << "' to service registry!";
-        errorHandler(PoshError::POSH__PORT_MANAGER_COULD_NOT_ADD_SERVICE_TO_REGISTRY, ErrorLevel::MODERATE);
+        IOX_LOG(WARN, "Could not add publisher with service description '" << service << "' to service registry!");
+        IOX_REPORT(PoshError::POSH__PORT_MANAGER_COULD_NOT_ADD_SERVICE_TO_REGISTRY, iox::er::RUNTIME_ERROR);
     });
 }
 
@@ -1096,20 +1137,14 @@ void PortManager::removePublisherFromServiceRegistry(const capro::ServiceDescrip
 void PortManager::addServerToServiceRegistry(const capro::ServiceDescription& service) noexcept
 {
     m_serviceRegistry.addServer(service).or_else([&](auto&) {
-        IOX_LOG(WARN) << "Could not add server with service description '" << service << "' to service registry!";
-        errorHandler(PoshError::POSH__PORT_MANAGER_COULD_NOT_ADD_SERVICE_TO_REGISTRY, ErrorLevel::MODERATE);
+        IOX_LOG(WARN, "Could not add server with service description '" << service << "' to service registry!");
+        IOX_REPORT(PoshError::POSH__PORT_MANAGER_COULD_NOT_ADD_SERVICE_TO_REGISTRY, iox::er::RUNTIME_ERROR);
     });
 }
 
 void PortManager::removeServerFromServiceRegistry(const capro::ServiceDescription& service) noexcept
 {
     m_serviceRegistry.removeServer(service);
-}
-
-expected<runtime::NodeData*, PortPoolError> PortManager::acquireNodeData(const RuntimeName_t& runtimeName,
-                                                                         const NodeName_t& nodeName) noexcept
-{
-    return m_portPool->addNodeData(runtimeName, nodeName, 0);
 }
 
 expected<popo::ConditionVariableData*, PortPoolError>

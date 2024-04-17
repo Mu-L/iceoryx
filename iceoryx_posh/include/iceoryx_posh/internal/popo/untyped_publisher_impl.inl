@@ -32,6 +32,12 @@ inline UntypedPublisherImpl<BasePublisherType>::UntypedPublisherImpl(const capro
 }
 
 template <typename BasePublisherType>
+inline UntypedPublisherImpl<BasePublisherType>::UntypedPublisherImpl(PortType&& port) noexcept
+    : BasePublisherType(std::move(port))
+{
+}
+
+template <typename BasePublisherType>
 inline void UntypedPublisherImpl<BasePublisherType>::publish(void* const userPayload) noexcept
 {
     auto chunkHeader = mepoo::ChunkHeader::fromUserPayload(userPayload);
@@ -40,7 +46,7 @@ inline void UntypedPublisherImpl<BasePublisherType>::publish(void* const userPay
 
 template <typename BasePublisherType>
 inline expected<void*, AllocationError>
-UntypedPublisherImpl<BasePublisherType>::loan(const uint32_t userPayloadSize,
+UntypedPublisherImpl<BasePublisherType>::loan(const uint64_t userPayloadSize,
                                               const uint32_t userPayloadAlignment,
                                               const uint32_t userHeaderSize,
                                               const uint32_t userHeaderAlignment) noexcept

@@ -16,6 +16,8 @@
 #include "test.hpp"
 #include <gtest/gtest.h>
 
+#include "iox/assertions.hpp"
+
 // some dummy modules under test
 #include "module_a/error_reporting.hpp"
 #include "module_b/error_reporting.hpp"
@@ -27,11 +29,8 @@
 
 namespace
 {
-
-// NOLINTBEGIN(cppcoreguidelines-avoid-do-while) bad rule, disable globally
 using namespace ::testing;
 using namespace iox::er;
-using namespace iox::cxx;
 using namespace iox::testing;
 
 using MyErrorA = module_a::errors::Error;
@@ -45,8 +44,6 @@ class ErrorReportingMacroApi_test : public Test
   public:
     void SetUp() override
     {
-        /// @todo iox-#1032 this should be done for all tests (using Gtest hooks) in integration
-        iox::testing::ErrorHandler::instance().reset();
     }
 
     void TearDown() override
@@ -127,92 +124,69 @@ TEST_F(ErrorReportingMacroApi_test, reportConditionalNoError)
     IOX_TESTING_EXPECT_OK();
 }
 
-TEST_F(ErrorReportingMacroApi_test, requireConditionSatisfied)
+TEST_F(ErrorReportingMacroApi_test, checkEnforceConditionSatisfied)
 {
     ::testing::Test::RecordProperty("TEST_ID", "3c684878-20f8-426f-bb8b-7576b567d04f");
-    auto f = []() { IOX_REQUIRE(true, MyCodeA::OutOfBounds); };
+    auto f = []() { IOX_ENFORCE(true, ""); };
 
     runInTestThread(f);
 
     IOX_TESTING_EXPECT_OK();
 }
 
-TEST_F(ErrorReportingMacroApi_test, requireConditionNotSatisfied)
+TEST_F(ErrorReportingMacroApi_test, checkEnforceConditionViolate)
 {
     ::testing::Test::RecordProperty("TEST_ID", "fb62d315-8854-401b-82af-6161ae45a34e");
-    auto f = []() { IOX_REQUIRE(false, MyCodeA::OutOfBounds); };
+    auto f = []() { IOX_ENFORCE(false, ""); };
 
     runInTestThread(f);
 
     IOX_TESTING_EXPECT_PANIC();
-    IOX_TESTING_EXPECT_ERROR(MyCodeA::OutOfBounds);
+    IOX_TESTING_EXPECT_ENFORCE_VIOLATION();
 }
 
-TEST_F(ErrorReportingMacroApi_test, checkPreconditionSatisfied)
+TEST_F(ErrorReportingMacroApi_test, checkAssertConditionSatisfied)
 {
-    ::testing::Test::RecordProperty("TEST_ID", "bb6e2122-7c57-4657-9567-ecb63e26a3ed");
-    auto f = [](int x) { IOX_PRECONDITION(x > 0, ""); };
+    ::testing::Test::RecordProperty("TEST_ID", "a76ce780-3387-4ae8-8e4c-c96bdb8aa753");
+    auto f = [](int x) { IOX_ASSERT(x > 0, ""); };
 
-    runInTestThread(f, 1);
+    runInTestThread([&]() { f(1); });
 
     IOX_TESTING_EXPECT_OK();
 }
 
-TEST_F(ErrorReportingMacroApi_test, checkPreconditionViolated)
+TEST_F(ErrorReportingMacroApi_test, checkAssertConditionNotSatisfied)
 {
-    ::testing::Test::RecordProperty("TEST_ID", "b2d27f6d-d0c7-405a-afbf-bf8a72661b20");
-    auto f = [](int x) { IOX_PRECONDITION(x > 0, ""); };
+    ::testing::Test::RecordProperty("TEST_ID", "9ee71bd3-9004-4950-8441-25e98cf8409c");
+    auto f = [](int x) { IOX_ASSERT(x > 0, ""); };
 
     runInTestThread([&]() { f(0); });
 
-    runInTestThread(f, 0);
-
     IOX_TESTING_EXPECT_PANIC();
-    IOX_TESTING_EXPECT_PRECONDITION_VIOLATION();
+    IOX_TESTING_EXPECT_ASSERT_VIOLATION();
 }
 
-TEST_F(ErrorReportingMacroApi_test, checkAssumptionSatisfied)
-{
-    ::testing::Test::RecordProperty("TEST_ID", "a76ce780-3387-4ae8-8e4c-c96bdb8aa753");
-    auto f = [](int x) { IOX_ASSUME(x > 0, ""); };
-
-    runInTestThread(f, 1);
-
-    IOX_TESTING_EXPECT_OK();
-}
-
-TEST_F(ErrorReportingMacroApi_test, checkAssumptionNotSatisfied)
-{
-    ::testing::Test::RecordProperty("TEST_ID", "9ee71bd3-9004-4950-8441-25e98cf8409c");
-    auto f = [](int x) { IOX_ASSUME(x > 0, ""); };
-
-    runInTestThread(f, 0);
-
-    IOX_TESTING_EXPECT_PANIC();
-    IOX_TESTING_EXPECT_ASSUMPTION_VIOLATION();
-}
-
-TEST_F(ErrorReportingMacroApi_test, checkPreconditionNotSatisfiedWithMessage)
+TEST_F(ErrorReportingMacroApi_test, checkEnforceConditionNotSatisfiedWithMessage)
 {
     ::testing::Test::RecordProperty("TEST_ID", "18d5b9a6-2d60-478e-8c50-d044a3672290");
 
-    auto f = [](int x) { IOX_PRECONDITION(x > 0, "some message"); };
+    auto f = [](int x) { IOX_ENFORCE(x > 0, "some message"); };
 
-    runInTestThread(f, 0);
+    runInTestThread([&]() { f(0); });
 
     IOX_TESTING_EXPECT_PANIC();
-    IOX_TESTING_EXPECT_PRECONDITION_VIOLATION();
+    IOX_TESTING_EXPECT_ENFORCE_VIOLATION();
 }
 
-TEST_F(ErrorReportingMacroApi_test, checkAssumptionNotSatisfiedWithMessage)
+TEST_F(ErrorReportingMacroApi_test, checkAssertNotSatisfiedWithMessage)
 {
     ::testing::Test::RecordProperty("TEST_ID", "b416674a-5861-4ab7-947b-0bd0af2f627b");
-    auto f = [](int x) { IOX_ASSUME(x > 0, "some message"); };
+    auto f = [](int x) { IOX_ASSERT(x > 0, "some message"); };
 
-    runInTestThread(f, 0);
+    runInTestThread([&]() { f(0); });
 
     IOX_TESTING_EXPECT_PANIC();
-    IOX_TESTING_EXPECT_ASSUMPTION_VIOLATION();
+    IOX_TESTING_EXPECT_ASSERT_VIOLATION();
 }
 
 TEST_F(ErrorReportingMacroApi_test, reportErrorsFromDifferentModules)
@@ -251,7 +225,7 @@ TEST_F(ErrorReportingMacroApi_test, reportErrorsAndViolations)
     auto f = []() {
         IOX_REPORT(MyCodeA::OutOfBounds, RUNTIME_ERROR);
         IOX_REPORT(MyCodeB::OutOfMemory, RUNTIME_ERROR);
-        IOX_ASSUME(false, "");
+        IOX_ENFORCE(false, "");
     };
 
     runInTestThread(f);
@@ -271,6 +245,5 @@ TEST_F(ErrorReportingMacroApi_test, panicAtUnreachableCode)
 
     IOX_TESTING_EXPECT_PANIC();
 }
-// NOLINTEND(cppcoreguidelines-avoid-do-while)
 
 } // namespace

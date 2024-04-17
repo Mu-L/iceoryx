@@ -20,33 +20,40 @@
 
 #include "iceoryx_posh/internal/runtime/ipc_interface_creator.hpp"
 #include "iceoryx_posh/internal/runtime/ipc_interface_user.hpp"
+#include "iox/expected.hpp"
 #include "iox/optional.hpp"
 
 namespace iox
 {
 namespace runtime
 {
+enum class IpcRuntimeInterfaceError
+{
+    CANNOT_CREATE_APPLICATION_CHANNEL,
+    TIMEOUT_WAITING_FOR_ROUDI,
+    SENDING_REQUEST_TO_ROUDI_FAILED,
+    NO_RESPONSE_FROM_ROUDI,
+};
+
 class IpcRuntimeInterface
 {
   public:
-    /// @brief Runtime Interface for the own IPC channel and the one to the RouDi daemon
-    /// @param[in] roudiName name of the RouDi IPC channel
-    /// @param[in] runtimeName name of the application's runtime and its IPC channel
-    /// @param[in] roudiWaitingTimeout timeout for searching the RouDi IPC channel
-    IpcRuntimeInterface(const RuntimeName_t& roudiName,
-                        const RuntimeName_t& runtimeName,
-                        const units::Duration roudiWaitingTimeout) noexcept;
+    /// @brief Creates an 'IpcRuntimeInterface' which tries to register at RouDi and delegates any error up in the stack
+    /// @param[in] runtimeName is the name of the runtime to register at RouDi
+    /// @param[in] domainId to tie the interface to
+    /// @param[in] roudiWaitingTimeout is the time to wait for RouDi to start if it is nor running
+    /// @return an IPC interface to communicate with RouDi or a IpcRuntimeInterfaceError
+    static expected<IpcRuntimeInterface, IpcRuntimeInterfaceError> create(
+        const RuntimeName_t& runtimeName, const DomainId domainId, const units::Duration roudiWaitingTimeout) noexcept;
+
     ~IpcRuntimeInterface() noexcept = default;
+
+    IpcRuntimeInterface(IpcRuntimeInterface&&) noexcept = default;
+    IpcRuntimeInterface& operator=(IpcRuntimeInterface&&) noexcept = default;
 
     /// @brief Not needed therefore deleted
     IpcRuntimeInterface(const IpcRuntimeInterface&) = delete;
     IpcRuntimeInterface& operator=(const IpcRuntimeInterface&) = delete;
-    IpcRuntimeInterface(IpcRuntimeInterface&&) = delete;
-    IpcRuntimeInterface& operator=(IpcRuntimeInterface&&) = delete;
-
-    /// @brief sends the keep alive trigger to the RouDi daemon
-    /// @return true if sending was successful, false if not
-    bool sendKeepalive() noexcept;
 
     /// @brief send a request to the RouDi daemon
     /// @param[in] msg request to RouDi
@@ -60,31 +67,46 @@ class IpcRuntimeInterface
 
     /// @brief get the size of the management shared memory object
     /// @return size in bytes
-    size_t getShmTopicSize() noexcept;
+    uint64_t getShmTopicSize() noexcept;
 
     /// @brief get the segment id of the shared memory object
     /// @return segment id
     uint64_t getSegmentId() const noexcept;
 
+    /// @brief Access the relative pointer offset for the heartbeat
+    /// @return relative pointer offset for the heartbeat or 'nullopt' if monitoring is disabled
+    optional<UntypedRelativePointer::offset_t> getHeartbeatAddressOffset() const noexcept;
+
   private:
+    struct MgmtShmCharacteristics
+    {
+        uint64_t shmTopicSize{0U};
+        uint64_t segmentId{0U};
+        UntypedRelativePointer::offset_t segmentManagerAddressOffset{UntypedRelativePointer::NULL_POINTER_OFFSET};
+        optional<UntypedRelativePointer::offset_t> heartbeatAddressOffset;
+    };
+
     enum class RegAckResult
     {
         SUCCESS,
-        TIMEOUT
+        TIMEOUT,
+        MALFORMED_RESPONSE
     };
 
-    void waitForRoudi(deadline_timer& timer) noexcept;
+    IpcRuntimeInterface(IpcInterfaceCreator&& appIpcInterface,
+                        IpcInterfaceUser&& roudiIpcInterface,
+                        MgmtShmCharacteristics&& mgmtShmCharacteristics) noexcept;
 
-    RegAckResult waitForRegAck(const int64_t transmissionTimestamp) noexcept;
+    static void waitForRoudi(IpcInterfaceUser& roudiIpcInterface, deadline_timer& timer) noexcept;
+
+    static RegAckResult waitForRegAck(const int64_t transmissionTimestamp,
+                                      IpcInterfaceCreator& appIpcInterface,
+                                      MgmtShmCharacteristics& mgmtShmCharacteristics) noexcept;
 
   private:
-    RuntimeName_t m_runtimeName;
-    optional<UntypedRelativePointer::offset_t> m_segmentManagerAddressOffset;
-    optional<IpcInterfaceCreator> m_AppIpcInterface;
+    IpcInterfaceCreator m_AppIpcInterface;
     IpcInterfaceUser m_RoudiIpcInterface;
-    uint64_t m_shmTopicSize{0U};
-    uint64_t m_segmentId{0U};
-    bool m_sendKeepalive = true;
+    MgmtShmCharacteristics m_mgmtShmCharacteristics;
 };
 
 } // namespace runtime

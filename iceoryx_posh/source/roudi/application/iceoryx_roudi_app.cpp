@@ -17,18 +17,18 @@
 
 #include "iceoryx_posh/roudi/iceoryx_roudi_app.hpp"
 
-#include "iceoryx_dust/posix_wrapper/signal_watcher.hpp"
 #include "iceoryx_posh/internal/roudi/roudi.hpp"
 #include "iceoryx_posh/roudi/iceoryx_roudi_components.hpp"
 #include "iox/optional.hpp"
 #include "iox/scoped_static.hpp"
+#include "iox/signal_watcher.hpp"
 
 namespace iox
 {
 namespace roudi
 {
-IceOryxRouDiApp::IceOryxRouDiApp(const config::CmdLineArgs_t& cmdLineArgs, const RouDiConfig_t& roudiConfig) noexcept
-    : RouDiApp(cmdLineArgs, roudiConfig)
+IceOryxRouDiApp::IceOryxRouDiApp(const IceoryxConfig& config) noexcept
+    : RouDiApp(config)
 {
 }
 
@@ -40,17 +40,9 @@ uint8_t IceOryxRouDiApp::run() noexcept
         auto componentsScopeGuard = makeScopedStatic(m_rouDiComponents, m_config);
 
         static optional<RouDi> roudi;
-        auto roudiScopeGuard =
-            makeScopedStatic(roudi,
-                             m_rouDiComponents.value().rouDiMemoryManager,
-                             m_rouDiComponents.value().portManager,
-                             RouDi::RoudiStartupParameters{m_monitoringMode,
-                                                           true,
-                                                           RouDi::RuntimeMessagesThreadStart::IMMEDIATE,
-                                                           m_compatibilityCheckLevel,
-                                                           m_processKillDelay,
-                                                           m_processTeminationDelay});
-        iox::posix::waitForTerminationRequest();
+        auto roudiScopeGuard = makeScopedStatic(
+            roudi, m_rouDiComponents.value().rouDiMemoryManager, m_rouDiComponents.value().portManager, m_config);
+        iox::waitForTerminationRequest();
     }
     return EXIT_SUCCESS;
 }

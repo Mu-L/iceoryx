@@ -1,6 +1,6 @@
 // Copyright (c) 2019, 2021 by Robert Bosch GmbH. All rights reserved.
 // Copyright (c) 2021 - 2022 by Apex.AI Inc. All rights reserved.
-// Copyright (c) 2023 by Mathias Kraus <elboberido@m-hias.de>. All rights reserved.
+// Copyright (c) 2023 - 2024 by ekxide IO GmbH. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,17 +17,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "iceoryx_posh/internal/roudi/roudi.hpp"
-#include "iceoryx_dust/cxx/convert.hpp"
-#include "iceoryx_dust/cxx/std_string_support.hpp"
-#include "iceoryx_hoofs/internal/posix_wrapper/system_configuration.hpp"
-#include "iceoryx_hoofs/posix_wrapper/posix_access_rights.hpp"
-#include "iceoryx_hoofs/posix_wrapper/thread.hpp"
-#include "iceoryx_posh/internal/runtime/node_property.hpp"
 #include "iceoryx_posh/popo/subscriber_options.hpp"
 #include "iceoryx_posh/popo/wait_set.hpp"
 #include "iceoryx_posh/roudi/introspection_types.hpp"
 #include "iceoryx_posh/runtime/port_config_info.hpp"
+#include "iox/detail/convert.hpp"
+#include "iox/detail/system_configuration.hpp"
 #include "iox/logging.hpp"
+#include "iox/posix_user.hpp"
+#include "iox/std_string_support.hpp"
+#include "iox/thread.hpp"
 
 namespace iox
 {
@@ -35,8 +34,8 @@ namespace roudi
 {
 RouDi::RouDi(RouDiMemoryInterface& roudiMemoryInterface,
              PortManager& portManager,
-             RoudiStartupParameters roudiStartupParameters) noexcept
-    : m_killProcessesInDestructor(roudiStartupParameters.m_killProcessesInDestructor)
+             const config::RouDiConfig& roudiConfig) noexcept
+    : m_roudiConfig(roudiConfig)
     , m_runMonitoringAndDiscoveryThread(true)
     , m_runHandleRuntimeMessageThread(true)
     , m_roudiMemoryInterface(&roudiMemoryInterface)
@@ -44,18 +43,16 @@ RouDi::RouDi(RouDiMemoryInterface& roudiMemoryInterface,
     , m_prcMgr(concurrent::ForwardArgsToCTor,
                *m_roudiMemoryInterface,
                portManager,
-               roudiStartupParameters.m_compatibilityCheckLevel)
+               m_roudiConfig.domainId,
+               m_roudiConfig.compatibilityCheckLevel)
     , m_mempoolIntrospection(
           *m_roudiMemoryInterface->introspectionMemoryManager().value(),
           *m_roudiMemoryInterface->segmentManager().value(),
           PublisherPortUserType(m_prcMgr->addIntrospectionPublisherPort(IntrospectionMempoolService)))
-    , m_monitoringMode(roudiStartupParameters.m_monitoringMode)
-    , m_processTerminationDelay(roudiStartupParameters.m_processTerminationDelay)
-    , m_processKillDelay(roudiStartupParameters.m_processKillDelay)
 {
-    if (internal::isCompiledOn32BitSystem())
+    if (detail::isCompiledOn32BitSystem())
     {
-        IOX_LOG(WARN) << "Runnning RouDi on 32-bit architectures is not supported! Use at your own risk!";
+        IOX_LOG(WARN, "Runnning RouDi on 32-bit architectures is not supported! Use at your own risk!");
     }
     m_processIntrospection.registerPublisherPort(
         PublisherPortUserType(m_prcMgr->addIntrospectionPublisherPort(IntrospectionProcessService)));
@@ -67,7 +64,7 @@ RouDi::RouDi(RouDiMemoryInterface& roudiMemoryInterface,
     m_processIntrospection.addProcess(getpid(), IPC_CHANNEL_ROUDI_NAME);
 
     // initialize semaphore for discovery loop finish indicator
-    iox::posix::UnnamedSemaphoreBuilder()
+    UnnamedSemaphoreBuilder()
         .initialValue(0U)
         .isInterProcessCapable(false)
         .create(m_discoveryFinishedSemaphore)
@@ -75,12 +72,8 @@ RouDi::RouDi(RouDiMemoryInterface& roudiMemoryInterface,
 
     // run the threads
     m_monitoringAndDiscoveryThread = std::thread(&RouDi::monitorAndDiscoveryUpdate, this);
-    posix::setThreadName(m_monitoringAndDiscoveryThread.native_handle(), "Mon+Discover");
 
-    if (roudiStartupParameters.m_runtimesMessagesThreadStart == RuntimeMessagesThreadStart::IMMEDIATE)
-    {
-        startProcessRuntimeMessagesThread();
-    }
+    startProcessRuntimeMessagesThread();
 }
 
 RouDi::~RouDi() noexcept
@@ -90,8 +83,12 @@ RouDi::~RouDi() noexcept
 
 void RouDi::startProcessRuntimeMessagesThread() noexcept
 {
-    m_handleRuntimeMessageThread = std::thread(&RouDi::processRuntimeMessages, this);
-    posix::setThreadName(m_handleRuntimeMessageThread.native_handle(), "IPC-msg-process");
+    m_handleRuntimeMessageThread =
+        std::thread(&RouDi::processRuntimeMessages,
+                    this,
+                    runtime::IpcInterfaceCreator::create(
+                        IPC_CHANNEL_ROUDI_NAME, m_roudiConfig.domainId, ResourceType::ICEORYX_DEFINED)
+                        .expect("Creating IPC channel for request to RouDi"));
 }
 
 void RouDi::shutdown() noexcept
@@ -109,22 +106,23 @@ void RouDi::shutdown() noexcept
     // wait for the monitoring and discovery thread to stop
     if (m_monitoringAndDiscoveryThread.joinable())
     {
-        IOX_LOG(DEBUG) << "Joining 'Mon+Discover' thread...";
+        IOX_LOG(DEBUG, "Joining 'Mon+Discover' thread...");
         m_monitoringAndDiscoveryThread.join();
-        IOX_LOG(DEBUG) << "...'Mon+Discover' thread joined.";
+        IOX_LOG(DEBUG, "...'Mon+Discover' thread joined.");
     }
 
-    if (m_killProcessesInDestructor)
+    if (!m_roudiConfig.sharesAddressSpaceWithApplications)
     {
-        deadline_timer terminationDelayTimer(m_processTerminationDelay);
+        deadline_timer terminationDelayTimer(m_roudiConfig.processTerminationDelay);
         using namespace units::duration_literals;
-        auto remainingDurationForInfoPrint = m_processTerminationDelay - 1_s;
+        auto remainingDurationForInfoPrint = m_roudiConfig.processTerminationDelay - 1_s;
         while (!terminationDelayTimer.hasExpired() && m_prcMgr->registeredProcessCount() > 0)
         {
             if (remainingDurationForInfoPrint > terminationDelayTimer.remainingTime())
             {
-                IOX_LOG(WARN) << "Some applications seem to be still running! Time until graceful shutdown: "
-                              << terminationDelayTimer.remainingTime().toSeconds() << "s!";
+                IOX_LOG(WARN,
+                        "Some applications seem to be still running! Time until graceful shutdown: "
+                            << terminationDelayTimer.remainingTime().toSeconds() << "s!");
                 remainingDurationForInfoPrint = remainingDurationForInfoPrint - 5_s;
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(PROCESS_TERMINATED_CHECK_INTERVAL.toMilliseconds()));
@@ -132,14 +130,15 @@ void RouDi::shutdown() noexcept
 
         m_prcMgr->requestShutdownOfAllProcesses();
 
-        deadline_timer finalKillTimer(m_processKillDelay);
-        auto remainingDurationForWarnPrint = m_processKillDelay - 2_s;
+        deadline_timer finalKillTimer(m_roudiConfig.processKillDelay);
+        auto remainingDurationForWarnPrint = m_roudiConfig.processKillDelay - 2_s;
         while (m_prcMgr->probeRegisteredProcessesAliveWithSigTerm() && !finalKillTimer.hasExpired())
         {
             if (remainingDurationForWarnPrint > finalKillTimer.remainingTime())
             {
-                IOX_LOG(WARN) << "Some applications seem to not shutdown gracefully! Time until hard shutdown: "
-                              << finalKillTimer.remainingTime().toSeconds() << "s!";
+                IOX_LOG(WARN,
+                        "Some applications seem to not shutdown gracefully! Time until hard shutdown: "
+                            << finalKillTimer.remainingTime().toSeconds() << "s!");
                 remainingDurationForWarnPrint = remainingDurationForWarnPrint - 5_s;
             }
             // give processes some time to terminate
@@ -164,9 +163,9 @@ void RouDi::shutdown() noexcept
 
     if (m_handleRuntimeMessageThread.joinable())
     {
-        IOX_LOG(DEBUG) << "Joining 'IPC-msg-process' thread...";
+        IOX_LOG(DEBUG, "Joining 'IPC-msg-process' thread...");
         m_handleRuntimeMessageThread.join();
-        IOX_LOG(DEBUG) << "...'IPC-msg-process' thread joined.";
+        IOX_LOG(DEBUG, "...'IPC-msg-process' thread joined.");
     }
 }
 
@@ -184,21 +183,25 @@ void RouDi::triggerDiscoveryLoopAndWaitToFinish(units::Duration timeout) noexcep
             .and_then([&decrementSemaphoreCount](const auto& countNonZero) { decrementSemaphoreCount = countNonZero; })
             .or_else([&decrementSemaphoreCount](const auto& error) {
                 decrementSemaphoreCount = false;
-                IOX_LOG(ERROR) << "Could not decrement count of the semaphore which signals a finished run of the "
-                                  "discovery loop! Error: "
-                               << static_cast<uint32_t>(error);
+                IOX_LOG(ERROR,
+                        "Could not decrement count of the semaphore which signals a finished run of the "
+                        "discovery loop! Error: "
+                            << static_cast<uint32_t>(error));
             });
     }
     m_discoveryLoopTrigger.trigger();
     m_discoveryFinishedSemaphore->timedWait(timeout).or_else([](const auto& error) {
-        IOX_LOG(ERROR) << "A timed wait on the semaphore which signals a finished run of the "
-                          "discovery loop failed! Error: "
-                       << static_cast<uint32_t>(error);
+        IOX_LOG(ERROR,
+                "A timed wait on the semaphore which signals a finished run of the "
+                "discovery loop failed! Error: "
+                    << static_cast<uint32_t>(error));
     });
 }
 
 void RouDi::monitorAndDiscoveryUpdate() noexcept
 {
+    setThreadName("Mon+Discover");
+
     class DiscoveryWaitSet : public popo::WaitSet<1>
     {
       public:
@@ -222,8 +225,9 @@ void RouDi::monitorAndDiscoveryUpdate() noexcept
         if (manuallyTriggered)
         {
             m_discoveryFinishedSemaphore->post().or_else([](const auto& error) {
-                IOX_LOG(ERROR) << "Could not trigger semaphore to signal a finished run of the discovery loop! Error: "
-                               << static_cast<uint32_t>(error);
+                IOX_LOG(ERROR,
+                        "Could not trigger semaphore to signal a finished run of the discovery loop! Error: "
+                            << static_cast<uint32_t>(error));
             });
         }
 
@@ -239,18 +243,20 @@ void RouDi::monitorAndDiscoveryUpdate() noexcept
     }
 }
 
-void RouDi::processRuntimeMessages() noexcept
+void RouDi::processRuntimeMessages(runtime::IpcInterfaceCreator&& roudiIpcInterface) noexcept
 {
-    runtime::IpcInterfaceCreator roudiIpcInterface{IPC_CHANNEL_ROUDI_NAME};
+    auto roudiIpc = std::move(roudiIpcInterface);
 
-    IOX_LOG(INFO) << "RouDi is ready for clients";
+    setThreadName("IPC-msg-process");
+
+    IOX_LOG(INFO, "RouDi is ready for clients");
     fflush(stdout); // explicitly flush 'stdout' for 'launch_testing'
 
     while (m_runHandleRuntimeMessageThread)
     {
         // read RouDi's IPC channel
         runtime::IpcMessage message;
-        if (roudiIpcInterface.timedReceive(m_runtimeMessagesThreadTimeout, message))
+        if (roudiIpc.timedReceive(m_runtimeMessagesThreadTimeout, message))
         {
             auto cmd = runtime::stringToIpcMessageType(message.getElementAtIndex(0).c_str());
             RuntimeName_t runtimeName{into<lossy<RuntimeName_t>>(message.getElementAtIndex(1))};
@@ -265,10 +271,16 @@ version::VersionInfo RouDi::parseRegisterMessage(const runtime::IpcMessage& mess
                                                  uid_t& userId,
                                                  int64_t& transmissionTimestamp) noexcept
 {
-    cxx::convert::fromString(message.getElementAtIndex(2).c_str(), pid);
-    cxx::convert::fromString(message.getElementAtIndex(3).c_str(), userId);
-    cxx::convert::fromString(message.getElementAtIndex(4).c_str(), transmissionTimestamp);
-    cxx::Serialization serializationVersionInfo(message.getElementAtIndex(5));
+    convert::from_string<uint32_t>(message.getElementAtIndex(2).c_str()).and_then([&pid](const auto value) {
+        pid = value;
+    });
+    convert::from_string<uint32_t>(message.getElementAtIndex(3).c_str()).and_then([&userId](const auto value) {
+        userId = value;
+    });
+    convert::from_string<int64_t>(message.getElementAtIndex(4).c_str())
+        .and_then([&transmissionTimestamp](const auto value) { transmissionTimestamp = value; });
+
+    Serialization serializationVersionInfo(message.getElementAtIndex(5));
     return serializationVersionInfo;
 }
 
@@ -276,14 +288,31 @@ void RouDi::processMessage(const runtime::IpcMessage& message,
                            const iox::runtime::IpcMessageType& cmd,
                            const RuntimeName_t& runtimeName) noexcept
 {
+    if (runtimeName.empty())
+    {
+        IOX_LOG(ERROR, "Got message with empty runtime name!");
+        return;
+    }
+
+
+    for (const auto s : platform::IOX_PATH_SEPARATORS)
+    {
+        const char separator[2]{s};
+        if (runtimeName.find(separator).has_value())
+        {
+            IOX_LOG(ERROR, "Got message with a runtime name with invalid characters: \"" << runtimeName << "\"!");
+            return;
+        }
+    }
+
     switch (cmd)
     {
     case runtime::IpcMessageType::REG:
     {
         if (message.getNumberOfElements() != 6)
         {
-            IOX_LOG(ERROR) << "Wrong number of parameters for \"IpcMessageType::REG\" from \"" << runtimeName
-                           << "\"received!";
+            IOX_LOG(ERROR,
+                    "Wrong number of parameters for \"IpcMessageType::REG\" from \"" << runtimeName << "\"received!");
         }
         else
         {
@@ -294,7 +323,7 @@ void RouDi::processMessage(const runtime::IpcMessage& message,
 
             registerProcess(runtimeName,
                             pid,
-                            iox::posix::PosixUser{userId},
+                            PosixUser{userId},
                             transmissionTimestamp,
                             getUniqueSessionIdForProcess(),
                             versionInfo);
@@ -305,32 +334,34 @@ void RouDi::processMessage(const runtime::IpcMessage& message,
     {
         if (message.getNumberOfElements() != 5)
         {
-            IOX_LOG(ERROR) << "Wrong number of parameters for \"IpcMessageType::CREATE_PUBLISHER\" from \""
-                           << runtimeName << "\"received!";
+            IOX_LOG(ERROR,
+                    "Wrong number of parameters for \"IpcMessageType::CREATE_PUBLISHER\" from \"" << runtimeName
+                                                                                                  << "\"received!");
         }
         else
         {
             auto deserializationResult =
-                capro::ServiceDescription::deserialize(cxx::Serialization(message.getElementAtIndex(2)));
+                capro::ServiceDescription::deserialize(Serialization(message.getElementAtIndex(2)));
             if (deserializationResult.has_error())
             {
-                IOX_LOG(ERROR) << "Deserialization failed when '" << message.getElementAtIndex(2).c_str()
-                               << "' was provided\n";
+                IOX_LOG(ERROR,
+                        "Deserialization failed when '" << message.getElementAtIndex(2).c_str() << "' was provided\n");
                 break;
             }
             const auto& service = deserializationResult.value();
 
             auto publisherOptionsDeserializationResult =
-                popo::PublisherOptions::deserialize(cxx::Serialization(message.getElementAtIndex(3)));
+                popo::PublisherOptions::deserialize(Serialization(message.getElementAtIndex(3)));
             if (publisherOptionsDeserializationResult.has_error())
             {
-                IOX_LOG(ERROR) << "Deserialization of 'PublisherOptions' failed when '"
-                               << message.getElementAtIndex(3).c_str() << "' was provided\n";
+                IOX_LOG(ERROR,
+                        "Deserialization of 'PublisherOptions' failed when '" << message.getElementAtIndex(3).c_str()
+                                                                              << "' was provided\n");
                 break;
             }
             const auto& publisherOptions = publisherOptionsDeserializationResult.value();
 
-            cxx::Serialization portConfigInfoSerialization(message.getElementAtIndex(4));
+            Serialization portConfigInfoSerialization(message.getElementAtIndex(4));
 
             m_prcMgr->addPublisherForProcess(
                 runtimeName, service, publisherOptions, iox::runtime::PortConfigInfo(portConfigInfoSerialization));
@@ -341,33 +372,35 @@ void RouDi::processMessage(const runtime::IpcMessage& message,
     {
         if (message.getNumberOfElements() != 5)
         {
-            IOX_LOG(ERROR) << "Wrong number of parameters for \"IpcMessageType::CREATE_SUBSCRIBER\" from \""
-                           << runtimeName << "\"received!";
+            IOX_LOG(ERROR,
+                    "Wrong number of parameters for \"IpcMessageType::CREATE_SUBSCRIBER\" from \"" << runtimeName
+                                                                                                   << "\"received!");
         }
         else
         {
             auto deserializationResult =
-                capro::ServiceDescription::deserialize(cxx::Serialization(message.getElementAtIndex(2)));
+                capro::ServiceDescription::deserialize(Serialization(message.getElementAtIndex(2)));
             if (deserializationResult.has_error())
             {
-                IOX_LOG(ERROR) << "Deserialization failed when '" << message.getElementAtIndex(2).c_str()
-                               << "' was provided\n";
+                IOX_LOG(ERROR,
+                        "Deserialization failed when '" << message.getElementAtIndex(2).c_str() << "' was provided\n");
                 break;
             }
 
             const auto& service = deserializationResult.value();
 
             auto subscriberOptionsDeserializationResult =
-                popo::SubscriberOptions::deserialize(cxx::Serialization(message.getElementAtIndex(3)));
+                popo::SubscriberOptions::deserialize(Serialization(message.getElementAtIndex(3)));
             if (subscriberOptionsDeserializationResult.has_error())
             {
-                IOX_LOG(ERROR) << "Deserialization of 'SubscriberOptions' failed when '"
-                               << message.getElementAtIndex(3).c_str() << "' was provided\n";
+                IOX_LOG(ERROR,
+                        "Deserialization of 'SubscriberOptions' failed when '" << message.getElementAtIndex(3).c_str()
+                                                                               << "' was provided\n");
                 break;
             }
             const auto& subscriberOptions = subscriberOptionsDeserializationResult.value();
 
-            cxx::Serialization portConfigInfoSerialization(message.getElementAtIndex(4));
+            Serialization portConfigInfoSerialization(message.getElementAtIndex(4));
 
             m_prcMgr->addSubscriberForProcess(
                 runtimeName, service, subscriberOptions, iox::runtime::PortConfigInfo(portConfigInfoSerialization));
@@ -378,33 +411,35 @@ void RouDi::processMessage(const runtime::IpcMessage& message,
     {
         if (message.getNumberOfElements() != 5)
         {
-            IOX_LOG(ERROR) << "Wrong number of parameters for \"IpcMessageType::CREATE_CLIENT\" from \"" << runtimeName
-                           << "\"received!";
+            IOX_LOG(ERROR,
+                    "Wrong number of parameters for \"IpcMessageType::CREATE_CLIENT\" from \"" << runtimeName
+                                                                                               << "\"received!");
         }
         else
         {
             auto deserializationResult =
-                capro::ServiceDescription::deserialize(cxx::Serialization(message.getElementAtIndex(2)));
+                capro::ServiceDescription::deserialize(Serialization(message.getElementAtIndex(2)));
             if (deserializationResult.has_error())
             {
-                IOX_LOG(ERROR) << "Deserialization failed when '" << message.getElementAtIndex(2).c_str()
-                               << "' was provided\n";
+                IOX_LOG(ERROR,
+                        "Deserialization failed when '" << message.getElementAtIndex(2).c_str() << "' was provided\n");
                 break;
             }
 
             const auto& service = deserializationResult.value();
 
             auto clientOptionsDeserializationResult =
-                popo::ClientOptions::deserialize(cxx::Serialization(message.getElementAtIndex(3)));
+                popo::ClientOptions::deserialize(Serialization(message.getElementAtIndex(3)));
             if (clientOptionsDeserializationResult.has_error())
             {
-                IOX_LOG(ERROR) << "Deserialization of 'ClientOptions' failed when '"
-                               << message.getElementAtIndex(3).c_str() << "' was provided\n";
+                IOX_LOG(ERROR,
+                        "Deserialization of 'ClientOptions' failed when '" << message.getElementAtIndex(3).c_str()
+                                                                           << "' was provided\n");
                 break;
             }
             const auto& clientOptions = clientOptionsDeserializationResult.value();
 
-            runtime::PortConfigInfo portConfigInfo{cxx::Serialization(message.getElementAtIndex(4))};
+            runtime::PortConfigInfo portConfigInfo{Serialization(message.getElementAtIndex(4))};
 
             m_prcMgr->addClientForProcess(runtimeName, service, clientOptions, portConfigInfo);
         }
@@ -414,33 +449,35 @@ void RouDi::processMessage(const runtime::IpcMessage& message,
     {
         if (message.getNumberOfElements() != 5)
         {
-            IOX_LOG(ERROR) << "Wrong number of parameters for \"IpcMessageType::CREATE_SERVER\" from \"" << runtimeName
-                           << "\"received!";
+            IOX_LOG(ERROR,
+                    "Wrong number of parameters for \"IpcMessageType::CREATE_SERVER\" from \"" << runtimeName
+                                                                                               << "\"received!");
         }
         else
         {
             auto deserializationResult =
-                capro::ServiceDescription::deserialize(cxx::Serialization(message.getElementAtIndex(2)));
+                capro::ServiceDescription::deserialize(Serialization(message.getElementAtIndex(2)));
             if (deserializationResult.has_error())
             {
-                IOX_LOG(ERROR) << "Deserialization failed when '" << message.getElementAtIndex(2).c_str()
-                               << "' was provided\n";
+                IOX_LOG(ERROR,
+                        "Deserialization failed when '" << message.getElementAtIndex(2).c_str() << "' was provided\n");
                 break;
             }
 
             const auto& service = deserializationResult.value();
 
             auto serverOptionsDeserializationResult =
-                popo::ServerOptions::deserialize(cxx::Serialization(message.getElementAtIndex(3)));
+                popo::ServerOptions::deserialize(Serialization(message.getElementAtIndex(3)));
             if (serverOptionsDeserializationResult.has_error())
             {
-                IOX_LOG(ERROR) << "Deserialization of 'ServerOptions' failed when '"
-                               << message.getElementAtIndex(3).c_str() << "' was provided\n";
+                IOX_LOG(ERROR,
+                        "Deserialization of 'ServerOptions' failed when '" << message.getElementAtIndex(3).c_str()
+                                                                           << "' was provided\n");
                 break;
             }
             const auto& serverOptions = serverOptionsDeserializationResult.value();
 
-            runtime::PortConfigInfo portConfigInfo{cxx::Serialization(message.getElementAtIndex(4))};
+            runtime::PortConfigInfo portConfigInfo{Serialization(message.getElementAtIndex(4))};
 
             m_prcMgr->addServerForProcess(runtimeName, service, serverOptions, portConfigInfo);
         }
@@ -450,8 +487,9 @@ void RouDi::processMessage(const runtime::IpcMessage& message,
     {
         if (message.getNumberOfElements() != 2)
         {
-            IOX_LOG(ERROR) << "Wrong number of parameters for \"IpcMessageType::CREATE_CONDITION_VARIABLE\" from \""
-                           << runtimeName << "\"received!";
+            IOX_LOG(ERROR,
+                    "Wrong number of parameters for \"IpcMessageType::CREATE_CONDITION_VARIABLE\" from \""
+                        << runtimeName << "\"received!");
         }
         else
         {
@@ -463,44 +501,26 @@ void RouDi::processMessage(const runtime::IpcMessage& message,
     {
         if (message.getNumberOfElements() != 4)
         {
-            IOX_LOG(ERROR) << "Wrong number of parameters for \"IpcMessageType::CREATE_INTERFACE\" from \""
-                           << runtimeName << "\"received!";
+            IOX_LOG(ERROR,
+                    "Wrong number of parameters for \"IpcMessageType::CREATE_INTERFACE\" from \"" << runtimeName
+                                                                                                  << "\"received!");
         }
         else
         {
             capro::Interfaces interface =
                 StringToCaProInterface(into<lossy<capro::IdString_t>>(message.getElementAtIndex(2)));
 
-            m_prcMgr->addInterfaceForProcess(
-                runtimeName, interface, into<lossy<NodeName_t>>(message.getElementAtIndex(3)));
+            m_prcMgr->addInterfaceForProcess(runtimeName, interface);
         }
-        break;
-    }
-    case runtime::IpcMessageType::CREATE_NODE:
-    {
-        if (message.getNumberOfElements() != 3)
-        {
-            IOX_LOG(ERROR) << "Wrong number of parameters for \"IpcMessageType::CREATE_NODE\" from \"" << runtimeName
-                           << "\"received!";
-        }
-        else
-        {
-            runtime::NodeProperty nodeProperty(cxx::Serialization(message.getElementAtIndex(2)));
-            m_prcMgr->addNodeForProcess(runtimeName, nodeProperty.m_name);
-        }
-        break;
-    }
-    case runtime::IpcMessageType::KEEPALIVE:
-    {
-        m_prcMgr->updateLivelinessOfProcess(runtimeName);
         break;
     }
     case runtime::IpcMessageType::PREPARE_APP_TERMINATION:
     {
         if (message.getNumberOfElements() != 2)
         {
-            IOX_LOG(ERROR) << "Wrong number of parameters for \"IpcMessageType::PREPARE_APP_TERMINATION\" from \""
-                           << runtimeName << "\"received!";
+            IOX_LOG(ERROR,
+                    "Wrong number of parameters for \"IpcMessageType::PREPARE_APP_TERMINATION\" from \""
+                        << runtimeName << "\"received!");
         }
         else
         {
@@ -513,8 +533,9 @@ void RouDi::processMessage(const runtime::IpcMessage& message,
     {
         if (message.getNumberOfElements() != 2)
         {
-            IOX_LOG(ERROR) << "Wrong number of parameters for \"IpcMessageType::TERMINATION\" from \"" << runtimeName
-                           << "\"received!";
+            IOX_LOG(ERROR,
+                    "Wrong number of parameters for \"IpcMessageType::TERMINATION\" from \"" << runtimeName
+                                                                                             << "\"received!");
         }
         else
         {
@@ -524,7 +545,7 @@ void RouDi::processMessage(const runtime::IpcMessage& message,
     }
     default:
     {
-        IOX_LOG(ERROR) << "Unknown IPC message command [" << runtime::IpcMessageTypeToString(cmd) << "]";
+        IOX_LOG(ERROR, "Unknown IPC message command [" << runtime::IpcMessageTypeToString(cmd) << "]");
 
         m_prcMgr->sendMessageNotSupportedToRuntime(runtimeName);
         break;
@@ -534,12 +555,13 @@ void RouDi::processMessage(const runtime::IpcMessage& message,
 
 void RouDi::registerProcess(const RuntimeName_t& name,
                             const uint32_t pid,
-                            const posix::PosixUser user,
+                            const PosixUser user,
                             const int64_t transmissionTimestamp,
                             const uint64_t sessionId,
                             const version::VersionInfo& versionInfo) noexcept
 {
-    bool monitorProcess = (m_monitoringMode == roudi::MonitoringMode::ON);
+    bool monitorProcess = (m_roudiConfig.monitoringMode == roudi::MonitoringMode::ON
+                           && !m_roudiConfig.sharesAddressSpaceWithApplications);
     IOX_DISCARD_RESULT(
         m_prcMgr->registerProcess(name, pid, user, monitorProcess, transmissionTimestamp, sessionId, versionInfo));
 }

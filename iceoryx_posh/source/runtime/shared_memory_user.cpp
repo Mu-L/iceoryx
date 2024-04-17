@@ -1,5 +1,6 @@
 // Copyright (c) 2019 by Robert Bosch GmbH. All rights reserved.
 // Copyright (c) 2021 - 2022 by Apex.AI Inc. All rights reserved.
+// Copyright (c) 2024 by ekxide IO GmbH. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,93 +17,129 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "iceoryx_posh/internal/runtime/shared_memory_user.hpp"
-#include "iceoryx_hoofs/posix_wrapper/posix_access_rights.hpp"
-#include "iceoryx_posh/error_handling/error_handling.hpp"
 #include "iceoryx_posh/internal/mepoo/segment_manager.hpp"
+#include "iceoryx_posh/internal/posh_error_reporting.hpp"
+#include "iox/detail/convert.hpp"
 #include "iox/logging.hpp"
+#include "iox/posix_user.hpp"
+#include "iox/scope_guard.hpp"
 
 namespace iox
 {
 namespace runtime
 {
-constexpr access_rights SharedMemoryUser::SHM_SEGMENT_PERMISSIONS;
+constexpr uint32_t SharedMemoryUser::NUMBER_OF_ALL_SHM_SEGMENTS;
 
-SharedMemoryUser::SharedMemoryUser(const size_t topicSize,
-                                   const uint64_t segmentId,
-                                   const UntypedRelativePointer::offset_t segmentManagerAddressOffset) noexcept
+expected<SharedMemoryUser, SharedMemoryUserError>
+SharedMemoryUser::create(const DomainId domainId,
+                         const uint64_t segmentId,
+                         const uint64_t managementShmSize,
+                         const UntypedRelativePointer::offset_t segmentManagerAddressOffset) noexcept
 {
-    posix::SharedMemoryObjectBuilder()
-        .name(roudi::SHM_NAME)
-        .memorySizeInBytes(topicSize)
-        .accessMode(posix::AccessMode::READ_WRITE)
-        .openMode(posix::OpenMode::OPEN_EXISTING)
-        .permissions(SHM_SEGMENT_PERMISSIONS)
-        .create()
-        .and_then([this, segmentId, segmentManagerAddressOffset](auto& sharedMemoryObject) {
-            auto registeredSuccessfully = UntypedRelativePointer::registerPtrWithId(
-                segment_id_t{segmentId},
-                sharedMemoryObject.getBaseAddress(),
-                sharedMemoryObject.get_size().expect("Failed to acquire SHM size."));
+    ShmVector_t shmSegments;
+    ScopeGuard shmCleaner{[] {}, [&shmSegments] { SharedMemoryUser::destroy(shmSegments); }};
 
-            if (!registeredSuccessfully)
-            {
-                errorHandler(PoshError::POSH__SHM_APP_COULD_NOT_REGISTER_PTR_WITH_GIVEN_SEGMENT_ID);
-            }
+    // open management segment
+    auto shmOpen = openShmSegment(shmSegments,
+                                  domainId,
+                                  segmentId,
+                                  ResourceType::ICEORYX_DEFINED,
+                                  {roudi::SHM_NAME},
+                                  managementShmSize,
+                                  AccessMode::READ_WRITE);
+    if (shmOpen.has_error())
+    {
+        return err(shmOpen.error());
+    }
 
-            IOX_LOG(DEBUG) << "Application registered management segment "
-                           << iox::log::hex(sharedMemoryObject.getBaseAddress()) << " with size "
-                           << sharedMemoryObject.get_size().expect("Failed to acquire SHM size.") << " to id "
-                           << segmentId;
-
-            this->openDataSegments(segmentId, segmentManagerAddressOffset);
-
-            m_shmObject.emplace(std::move(sharedMemoryObject));
-        })
-        .or_else([](auto&) { errorHandler(PoshError::POSH__SHM_APP_MAPP_ERR); });
-}
-
-void SharedMemoryUser::openDataSegments(const uint64_t segmentId,
-                                        const UntypedRelativePointer::offset_t segmentManagerAddressOffset) noexcept
-{
+    // open payload segments
     auto* ptr = UntypedRelativePointer::getPtr(segment_id_t{segmentId}, segmentManagerAddressOffset);
     auto* segmentManager = static_cast<mepoo::SegmentManager<>*>(ptr);
 
-    auto segmentMapping = segmentManager->getSegmentMappings(posix::PosixUser::getUserOfCurrentProcess());
+    auto segmentMapping = segmentManager->getSegmentMappings(PosixUser::getUserOfCurrentProcess());
     for (const auto& segment : segmentMapping)
     {
-        auto accessMode = segment.m_isWritable ? posix::AccessMode::READ_WRITE : posix::AccessMode::READ_ONLY;
-        posix::SharedMemoryObjectBuilder()
-            .name(segment.m_sharedMemoryName)
-            .memorySizeInBytes(segment.m_size)
-            .accessMode(accessMode)
-            .openMode(posix::OpenMode::OPEN_EXISTING)
-            .permissions(SHM_SEGMENT_PERMISSIONS)
-            .create()
-            .and_then([this, &segment](auto& sharedMemoryObject) {
-                if (static_cast<uint32_t>(m_dataShmObjects.size()) >= MAX_SHM_SEGMENTS)
-                {
-                    errorHandler(PoshError::POSH__SHM_APP_SEGMENT_COUNT_OVERFLOW);
-                }
+        if (static_cast<uint32_t>(shmSegments.size()) >= MAX_SHM_SEGMENTS)
+        {
+            return err(SharedMemoryUserError::TOO_MANY_SHM_SEGMENTS);
+        }
 
-                auto registeredSuccessfully = UntypedRelativePointer::registerPtrWithId(
-                    segment_id_t{segment.m_segmentId},
-                    sharedMemoryObject.getBaseAddress(),
-                    sharedMemoryObject.get_size().expect("Failed to get SHM size."));
-
-                if (!registeredSuccessfully)
-                {
-                    errorHandler(PoshError::POSH__SHM_APP_COULD_NOT_REGISTER_PTR_WITH_GIVEN_SEGMENT_ID);
-                }
-
-                IOX_LOG(DEBUG) << "Application registered payload data segment "
-                               << iox::log::hex(sharedMemoryObject.getBaseAddress()) << " with size "
-                               << sharedMemoryObject.get_size().expect("Failed to get SHM size.") << " to id "
-                               << segment.m_segmentId;
-
-                m_dataShmObjects.emplace_back(std::move(sharedMemoryObject));
-            })
-            .or_else([](auto&) { errorHandler(PoshError::POSH__SHM_APP_SEGMENT_MAPP_ERR); });
+        auto shmOpen = openShmSegment(shmSegments,
+                                      domainId,
+                                      segment.m_segmentId,
+                                      ResourceType::USER_DEFINED,
+                                      segment.m_sharedMemoryName,
+                                      segment.m_size,
+                                      segment.m_isWritable ? AccessMode::READ_WRITE : AccessMode::READ_ONLY);
+        if (shmOpen.has_error())
+        {
+            return err(shmOpen.error());
+        }
     }
+
+    ScopeGuard::release(std::move(shmCleaner));
+    return ok(SharedMemoryUser{std::move(shmSegments)});
+}
+
+SharedMemoryUser::SharedMemoryUser(ShmVector_t&& payloadShm) noexcept
+    : m_shmSegments(std::move(payloadShm))
+{
+}
+
+SharedMemoryUser::~SharedMemoryUser() noexcept
+{
+    SharedMemoryUser::destroy(m_shmSegments);
+}
+
+void SharedMemoryUser::destroy(ShmVector_t& shmSegments) noexcept
+{
+    while (!shmSegments.empty())
+    {
+        auto& shm = shmSegments.back();
+        auto segmentId = segment_id_t{UntypedRelativePointer::searchId(shm.getBaseAddress())};
+        UntypedRelativePointer::unregisterPtr(segmentId);
+        shmSegments.pop_back();
+    }
+}
+
+expected<void, SharedMemoryUserError> SharedMemoryUser::openShmSegment(ShmVector_t& shmSegments,
+                                                                       const DomainId domainId,
+                                                                       const uint64_t segmentId,
+                                                                       const ResourceType resourceType,
+                                                                       const ShmName_t& shmName,
+                                                                       const uint64_t shmSize,
+                                                                       const AccessMode accessMode) noexcept
+{
+    auto shmResult = PosixSharedMemoryObjectBuilder()
+                         .name(concatenate(iceoryxResourcePrefix(domainId, resourceType), shmName))
+                         .memorySizeInBytes(shmSize)
+                         .accessMode(accessMode)
+                         .openMode(OpenMode::OPEN_EXISTING)
+                         .create();
+
+    if (shmResult.has_error())
+    {
+        return err(SharedMemoryUserError::SHM_MAPPING_ERROR);
+    }
+
+    auto& shm = shmResult.value();
+    auto registeredSuccessfully = UntypedRelativePointer::registerPtrWithId(
+        segment_id_t{segmentId}, shm.getBaseAddress(), shm.get_size().expect("Failed to acquire SHM size."));
+
+    if (!registeredSuccessfully)
+    {
+        return err(SharedMemoryUserError::RELATIVE_POINTER_MAPPING_ERROR);
+    }
+
+    IOX_LOG(
+        DEBUG,
+        "Application registered " << ((resourceType == ResourceType::ICEORYX_DEFINED) ? "management" : "payload data")
+                                  << " segment " << iox::log::hex(shm.getBaseAddress()) << " with size "
+                                  << shm.get_size().expect("Failed to acquire SHM size.") << " to id " << segmentId);
+
+    shmSegments.emplace_back(std::move(shm));
+
+    return ok();
 }
 } // namespace runtime
 } // namespace iox

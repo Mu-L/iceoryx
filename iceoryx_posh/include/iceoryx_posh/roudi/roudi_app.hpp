@@ -17,10 +17,11 @@
 #ifndef IOX_POSH_ROUDI_ROUDI_APP_HPP
 #define IOX_POSH_ROUDI_ROUDI_APP_HPP
 
-#include "iceoryx_posh/error_handling/error_handling.hpp"
 #include "iceoryx_posh/iceoryx_posh_config.hpp"
+#include "iceoryx_posh/internal/posh_error_reporting.hpp"
 #include "iceoryx_posh/mepoo/mepoo_config.hpp"
 #include "iceoryx_posh/roudi/cmd_line_args.hpp"
+#include "iox/detail/deprecation_marker.hpp"
 #include "iox/logging.hpp"
 
 #include <cstdint>
@@ -34,10 +35,9 @@ namespace roudi
 class RouDiApp
 {
   public:
-    /// @brief C'tor with command line parser, which has already parsed the command line parameters
-    /// @param[in] cmdLineParser reference to a command line parser object
+    /// @brief Common ctor to run RouDi
     /// @param[in] config the configuration to use
-    RouDiApp(const config::CmdLineArgs_t& cmdLineArgs, const RouDiConfig_t& config) noexcept;
+    RouDiApp(const IceoryxConfig& config) noexcept;
 
     virtual ~RouDiApp() noexcept {};
 
@@ -47,21 +47,14 @@ class RouDiApp
 
   protected:
     /// @brief waits for the next signal to RouDi daemon
-    [[deprecated("in 3.0, removed in 4.0, use iox::posix::waitForTerminationRequest() from "
-                 "'iceoryx_dust/posix_wrapper/signal_watcher.hpp'")]] bool
-    waitForSignal() noexcept;
+    IOX_DEPRECATED_SINCE(3, "Please use iox::waitForTerminationRequest() from 'iox/signal_watcher.hpp'")
+    bool waitForSignal() noexcept;
 
-    iox::log::LogLevel m_logLevel{iox::log::LogLevel::WARN};
-    roudi::MonitoringMode m_monitoringMode{roudi::MonitoringMode::ON};
     bool m_run{true};
-    RouDiConfig_t m_config;
-
-    version::CompatibilityCheckLevel m_compatibilityCheckLevel{version::CompatibilityCheckLevel::PATCH};
-    units::Duration m_processTeminationDelay{roudi::PROCESS_DEFAULT_TERMINATION_DELAY};
-    units::Duration m_processKillDelay{roudi::PROCESS_DEFAULT_KILL_DELAY};
+    IceoryxConfig m_config;
 
   private:
-    bool checkAndOptimizeConfig(const RouDiConfig_t& config) noexcept;
+    bool checkAndOptimizeConfig(const IceoryxConfig& config) noexcept;
 };
 
 } // namespace roudi

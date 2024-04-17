@@ -17,12 +17,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "iceoryx_posh/roudi/roudi_config_toml_file_provider.hpp"
-#include "iceoryx_dust/cxx/file_reader.hpp"
-#include "iceoryx_dust/cxx/std_string_support.hpp"
-#include "iceoryx_hoofs/posix_wrapper/posix_access_rights.hpp"
 #include "iceoryx_platform/getopt.hpp"
+#include "iox/file_reader.hpp"
 #include "iox/into.hpp"
 #include "iox/logging.hpp"
+#include "iox/posix_group.hpp"
+#include "iox/std_string_support.hpp"
 #include "iox/string.hpp"
 #include "iox/vector.hpp"
 
@@ -40,18 +40,20 @@ TomlRouDiConfigFileProvider::TomlRouDiConfigFileProvider(config::CmdLineArgs_t& 
     /// don't print additional output if not running
     if (cmdLineArgs.run)
     {
+        m_roudiConfig = cmdLineArgs.roudiConfig;
         if (cmdLineArgs.configFilePath.empty())
         {
-            cxx::FileReader configFile(defaultConfigFilePath, "", cxx::FileReader::ErrorMode::Ignore);
+            FileReader configFile(defaultConfigFilePath, "", FileReader::ErrorMode::Ignore);
             if (configFile.isOpen())
             {
-                IOX_LOG(INFO) << "No config file provided. Using '" << defaultConfigFilePath << "'";
+                IOX_LOG(INFO, "No config file provided. Using '" << defaultConfigFilePath << "'");
                 m_customConfigFilePath = defaultConfigFilePath;
             }
             else
             {
-                IOX_LOG(INFO) << "No config file provided and also not found at '" << defaultConfigFilePath
-                              << "'. Falling back to built-in config.";
+                IOX_LOG(INFO,
+                        "No config file provided and also not found at '" << defaultConfigFilePath
+                                                                          << "'. Falling back to built-in config.");
             }
         }
         else
@@ -61,28 +63,31 @@ TomlRouDiConfigFileProvider::TomlRouDiConfigFileProvider(config::CmdLineArgs_t& 
     }
 }
 
-iox::expected<iox::RouDiConfig_t, iox::roudi::RouDiConfigFileParseError> TomlRouDiConfigFileProvider::parse() noexcept
+iox::expected<iox::IceoryxConfig, iox::roudi::RouDiConfigFileParseError> TomlRouDiConfigFileProvider::parse() noexcept
 {
     // Early exit in case no config file path was provided
     if (m_customConfigFilePath.empty())
     {
-        iox::RouDiConfig_t defaultConfig;
+        iox::IceoryxConfig defaultConfig;
         defaultConfig.setDefaults();
+        static_cast<RouDiConfig&>(defaultConfig) = m_roudiConfig;
         return iox::ok(defaultConfig);
     }
 
     std::ifstream fileStream{m_customConfigFilePath.c_str()};
     if (!fileStream.is_open())
     {
-        IOX_LOG(ERROR) << "Could not open config file from path '" << m_customConfigFilePath << "'";
+        IOX_LOG(ERROR, "Could not open config file from path '" << m_customConfigFilePath << "'");
         return iox::err(iox::roudi::RouDiConfigFileParseError::FILE_OPEN_FAILED);
     }
 
-    return TomlRouDiConfigFileProvider::parse(fileStream);
+    return TomlRouDiConfigFileProvider::parse(fileStream).and_then([this](auto& config) {
+        static_cast<RouDiConfig&>(config) = m_roudiConfig;
+    });
 }
 
 
-iox::expected<iox::RouDiConfig_t, iox::roudi::RouDiConfigFileParseError>
+iox::expected<iox::IceoryxConfig, iox::roudi::RouDiConfigFileParseError>
 TomlRouDiConfigFileProvider::parse(std::istream& stream) noexcept
 {
     std::shared_ptr<cpptoml::table> parsedFile{nullptr};
@@ -95,8 +100,8 @@ TomlRouDiConfigFileProvider::parse(std::istream& stream) noexcept
     {
         auto parserError = iox::roudi::RouDiConfigFileParseError::EXCEPTION_IN_PARSER;
         auto errorStringIndex = static_cast<uint64_t>(parserError);
-        IOX_LOG(WARN) << iox::roudi::ROUDI_CONFIG_FILE_PARSE_ERROR_STRINGS[errorStringIndex] << ": "
-                      << parserException.what();
+        IOX_LOG(WARN,
+                iox::roudi::ROUDI_CONFIG_FILE_PARSE_ERROR_STRINGS[errorStringIndex] << ": " << parserException.what());
 
         return iox::err(parserError);
     }
@@ -123,8 +128,8 @@ TomlRouDiConfigFileProvider::parse(std::istream& stream) noexcept
         return iox::err(iox::roudi::RouDiConfigFileParseError::MAX_NUMBER_OF_SEGMENTS_EXCEEDED);
     }
 
-    auto groupOfCurrentProcess = iox::posix::PosixGroup::getGroupOfCurrentProcess().getName();
-    iox::RouDiConfig_t parsedConfig;
+    auto groupOfCurrentProcess = PosixGroup::getGroupOfCurrentProcess().getName();
+    iox::IceoryxConfig parsedConfig;
     for (auto segment : *segments)
     {
         auto writer = segment->get_as<std::string>("writer").value_or(into<std::string>(groupOfCurrentProcess));
@@ -143,7 +148,7 @@ TomlRouDiConfigFileProvider::parse(std::istream& stream) noexcept
 
         for (auto mempool : *mempools)
         {
-            auto chunkSize = mempool->get_as<uint32_t>("size");
+            auto chunkSize = mempool->get_as<uint64_t>("size");
             auto chunkCount = mempool->get_as<uint32_t>("count");
             if (!chunkSize)
             {
@@ -156,8 +161,8 @@ TomlRouDiConfigFileProvider::parse(std::istream& stream) noexcept
             mempoolConfig.addMemPool({*chunkSize, *chunkCount});
         }
         parsedConfig.m_sharedMemorySegments.push_back(
-            {iox::posix::PosixGroup::groupName_t(iox::TruncateToCapacity, reader.c_str(), reader.size()),
-             iox::posix::PosixGroup::groupName_t(iox::TruncateToCapacity, writer.c_str(), writer.size()),
+            {PosixGroup::groupName_t(iox::TruncateToCapacity, reader.c_str(), reader.size()),
+             PosixGroup::groupName_t(iox::TruncateToCapacity, writer.c_str(), writer.size()),
              mempoolConfig});
     }
 

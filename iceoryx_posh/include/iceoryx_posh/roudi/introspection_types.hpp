@@ -39,8 +39,8 @@ struct MemPoolInfo
     uint32_t m_usedChunks{0};
     uint32_t m_minFreeChunks{0};
     uint32_t m_numChunks{0};
-    uint32_t m_chunkSize{0};
-    uint32_t m_chunkPayloadSize{0};
+    uint64_t m_chunkSize{0};
+    uint64_t m_chunkPayloadSize{0};
 };
 
 /// @brief container for MemPoolInfo structs of all available mempools.
@@ -70,7 +70,6 @@ struct PortData
     capro::IdString_t m_caproInstanceID;
     capro::IdString_t m_caproServiceID;
     capro::IdString_t m_caproEventMethodID;
-    NodeName_t m_node;
 };
 
 using SubscriberPortData = PortData;
@@ -95,8 +94,8 @@ const capro::ServiceDescription
 struct PortThroughputData
 {
     uint64_t m_publisherPortID{0};
-    uint32_t m_sampleSize{0};
-    uint32_t m_chunkSize{0};
+    uint64_t m_sampleSize{0};
+    uint64_t m_chunkSize{0};
     double m_chunksPerMinute{0};
     uint64_t m_lastSendIntervalInNanoseconds{0};
     bool m_isField{false};
@@ -131,7 +130,6 @@ struct ProcessIntrospectionData
 {
     int m_pid{0};
     RuntimeName_t m_name;
-    vector<NodeName_t, MAX_NODE_PER_PROCESS> m_nodes;
 };
 
 /// @brief the topic for the process introspection that a user can subscribe to

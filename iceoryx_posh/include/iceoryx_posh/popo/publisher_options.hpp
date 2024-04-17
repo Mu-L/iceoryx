@@ -21,7 +21,7 @@
 #include "iox/expected.hpp"
 #include "port_queue_policies.hpp"
 
-#include "iceoryx_dust/cxx/serialization.hpp"
+#include "iox/detail/serialization.hpp"
 
 #include <cstdint>
 
@@ -36,6 +36,7 @@ struct PublisherOptions
     uint64_t historyCapacity{0U};
 
     /// @brief The name of the node where the publisher should belong to
+    /// @deprecated the 'nodeName' is not used with the current stable API
     iox::NodeName_t nodeName{""};
 
     /// @brief The option whether the publisher should already be offered when creating it
@@ -45,10 +46,9 @@ struct PublisherOptions
     ConsumerTooSlowPolicy subscriberTooSlowPolicy{ConsumerTooSlowPolicy::DISCARD_OLDEST_DATA};
 
     /// @brief serialization of the PublisherOptions
-    cxx::Serialization serialize() const noexcept;
+    Serialization serialize() const noexcept;
     /// @brief deserialization of the PublisherOptions
-    static expected<PublisherOptions, cxx::Serialization::Error>
-    deserialize(const cxx::Serialization& serialized) noexcept;
+    static expected<PublisherOptions, Serialization::Error> deserialize(const Serialization& serialized) noexcept;
 };
 
 } // namespace popo

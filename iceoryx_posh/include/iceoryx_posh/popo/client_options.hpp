@@ -20,7 +20,7 @@
 #include "iceoryx_posh/internal/popo/ports/client_server_port_types.hpp"
 #include "iceoryx_posh/popo/port_queue_policies.hpp"
 
-#include "iceoryx_dust/cxx/serialization.hpp"
+#include "iox/detail/serialization.hpp"
 
 #include <cstdint>
 
@@ -36,6 +36,7 @@ struct ClientOptions
     uint64_t responseQueueCapacity{ClientChunkQueueData_t::MAX_CAPACITY};
 
     /// @brief The name of the node where the client should belong to
+    /// @deprecated the 'nodeName' is not used with the current stable API
     iox::NodeName_t nodeName{""};
 
     /// @brief The option whether the client shall try to connect when creating it
@@ -50,10 +51,9 @@ struct ClientOptions
     ConsumerTooSlowPolicy serverTooSlowPolicy{ConsumerTooSlowPolicy::DISCARD_OLDEST_DATA};
 
     /// @brief serialization of the ClientOptions
-    cxx::Serialization serialize() const noexcept;
+    Serialization serialize() const noexcept;
     /// @brief deserialization of the ClientOptions
-    static expected<ClientOptions, cxx::Serialization::Error>
-    deserialize(const cxx::Serialization& serialized) noexcept;
+    static expected<ClientOptions, Serialization::Error> deserialize(const Serialization& serialized) noexcept;
 
     /// @brief comparison operator
     /// @param[in] rhs the right hand side of the comparison
